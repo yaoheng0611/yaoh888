@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YaoH的军情室</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">▥</div>
+          <div class="brand-text">YaoH的军情室</div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item active" data-scroll="overview"><span>⌂</span> 首页总览</button>
+          <button class="nav-item" data-scroll="aHoldings"><span>〽</span> A股持仓</button>
+          <button class="nav-item" data-scroll="usHoldings"><span>▥</span> 美股持仓</button>
+          <button class="nav-item" data-scroll="watchlistPanel"><span>♡</span> 自选观察</button>
+          <button class="nav-item" data-scroll="allocationPanel"><span>▤</span> 资产分析</button>
+          <button class="nav-item" data-scroll="returnPanel"><span>↗</span> 盈亏分析</button>
+          <button class="nav-item"><span>☷</span> 交易记录</button>
+          <button class="nav-item" id="importNav"><span>⇪</span> 数据导入</button>
+          <button class="nav-item"><span>⚙</span> 设置中心</button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <p>数据更新时间</p>
+          <strong id="sidebarTime">--</strong>
+          <button id="refreshSide" class="refresh-wide">⟳ 手动刷新</button>
+        </div>
+      </aside>
+
+      <main class="dashboard">
+        <header class="topbar">
+          <div>
+            <h1>首页总览</h1>
+            <p>总览您的全部投资情况</p>
+          </div>
+          <div class="top-actions">
+            <button id="topAddBtn" class="top-action-button">＋ 添加持仓</button>
+            <button id="topImportBtn" class="top-action-button">⇪ 导入CSV</button>
+            <label class="auto-refresh-control" title="自动按频率刷新行情">
+              <input id="autoRefreshToggle" type="checkbox" />
+              <span>自动刷新</span>
+            </label>
+            <select id="refreshIntervalSelect" class="top-select" title="刷新频率">
+              <option value="15">15秒</option>
+              <option value="30">30秒</option>
+              <option value="60" selected>60秒</option>
+              <option value="300">5分钟</option>
+            </select>
+            <span class="clock">◷ <span id="topTime">--</span></span>
+            <button id="refreshTop" class="icon-button" title="刷新行情">⟳</button>
+          </div>
+        </header>
+
+        <section id="overview" class="metric-grid">
+          <article class="metric-card">
+            <div class="metric-icon yen">¥</div>
+            <div>
+              <p>总资产（CNY）</p>
+              <h2 id="totalAssets">¥ 0.00</h2>
+              <small>较昨日 <b class="gain" id="dailyRate">+0.00%</b> <b class="gain" id="dailyPnl">+¥ 0.00</b></small>
+            </div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-icon chart">↗</div>
+            <div>
+              <p>今日盈亏</p>
+              <h2 id="todayPnl">+¥ 0.00</h2>
+              <small><b class="gain" id="todayRate">+0.00%</b></small>
+            </div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-icon target">◎</div>
+            <div>
+              <p>累计收益</p>
+              <h2 id="totalPnl">+¥ 0.00</h2>
+              <small><b class="gain" id="totalRate">+0.00%</b></small>
+            </div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-icon pie">◔</div>
+            <div>
+              <p>现金占比</p>
+              <h2 id="cashRate">0.00%</h2>
+              <small>现金 <b id="cashValue">¥ 0.00</b></small>
+            </div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-icon wallet">▣</div>
+            <div>
+              <p>可用资金</p>
+              <h2 id="availableCash">¥ 0.00</h2>
+              <small>可用 <b id="availableRate">0.00%</b></small>
+            </div>
+          </article>
+          <article class="metric-card quote-card">
+            <div class="metric-icon signal">↻</div>
+            <div>
+              <p>行情源状态</p>
+              <h2 id="quoteProvider">模拟行情</h2>
+              <small><b id="autoRefreshStatus">手动刷新</b> · <span id="quoteLastRefresh">未刷新</span></small>
+            </div>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <article id="allocationPanel" class="panel allocation-panel">
+            <div class="panel-title">
+              <h3>资产配置分布</h3>
+            </div>
+            <div class="allocation-body">
+              <div class="donut" id="donut">
+                <div>
+                  <span>总资产</span>
+                  <b id="donutTotal">¥ 0</b>
+                </div>
+              </div>
+              <div class="legend">
+                <div><span class="dot blue"></span><b>A股</b><strong id="asharePct">0%</strong><small id="ashareValue">¥ 0.00</small></div>
+                <div><span class="dot green"></span><b>美股</b><strong id="usPct">0%</strong><small id="usValue">¥ 0.00</small></div>
+                <div><span class="dot orange"></span><b>现金</b><strong id="cashPct">0%</strong><small id="cashLegend">¥ 0.00</small></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel trend-panel">
+            <div class="panel-title">
+              <h3>资产走势 <span>（近30天）</span></h3>
+              <button id="trendRangeBtn" class="select-chip">近30天⌄</button>
+            </div>
+            <canvas id="assetChart" width="560" height="250"></canvas>
+          </article>
+
+          <article id="watchlistPanel" class="panel watch-panel">
+            <div class="panel-title">
+              <h3>自选观察</h3>
+              <button id="watchToggleBtn">全部 ›</button>
+            </div>
+            <table>
+              <thead>
+                <tr><th>名称</th><th>最新价</th><th>涨跌幅</th><th>目标位</th><th>操作</th></tr>
+              </thead>
+              <tbody id="watchRows"></tbody>
+            </table>
+          </article>
+
+          <article id="aHoldings" class="panel holdings-panel a-holdings">
+            <div class="panel-title">
+              <h3>A股持仓 <span id="aCount"></span></h3>
+              <button class="section-jump" data-scroll="aHoldings">全部 ›</button>
+            </div>
+            <table>
+              <thead>
+                <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
+              </thead>
+              <tbody id="aRows"></tbody>
+              <tfoot id="aFoot"></tfoot>
+            </table>
+          </article>
+
+          <article id="usHoldings" class="panel holdings-panel us-holdings">
+            <div class="panel-title">
+              <h3>美股持仓 <span id="uCount"></span></h3>
+              <button class="section-jump" data-scroll="usHoldings">全部 ›</button>
+            </div>
+            <table>
+              <thead>
+                <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
+              </thead>
+              <tbody id="uRows"></tbody>
+              <tfoot id="uFoot"></tfoot>
+            </table>
+          </article>
+
+          <article class="panel news-panel">
+            <div class="panel-title">
+              <div>
+                <h3>AI投资资讯</h3>
+                <span id="newsPageInfo">真实新闻 · DeepSeek筛选</span>
+              </div>
+              <div class="news-actions">
+                <button id="newsRefreshBtn">刷新</button>
+                <button id="newsPrevBtn">‹</button>
+                <button id="newsMoreBtn">下一页 ›</button>
+              </div>
+            </div>
+            <ul id="newsList"></ul>
+          </article>
+
+          <article id="advisorPanel" class="panel advisor-panel">
+            <div class="panel-title">
+              <div>
+                <h3>DeepSeek 投资顾问</h3>
+                <span id="advisorStatus">等待配置 API Key</span>
+              </div>
+              <select id="advisorModelSelect" class="advisor-model-select" title="选择 DeepSeek 模型">
+                <option value="deepseek-v4-flash">Flash</option>
+                <option value="deepseek-v4-pro">Pro</option>
+              </select>
+              <button id="advisorAskBtn">生成分析</button>
+            </div>
+            <textarea id="advisorQuestion" rows="3" placeholder="可以问：今天组合风险在哪里？哪些持仓需要重点观察？"></textarea>
+            <div id="advisorOutput" class="advisor-output">
+              接入后会基于你的持仓、实时行情、当日盈亏和交易记录生成复盘分析。
+            </div>
+          </article>
+
+          <article id="returnPanel" class="panel return-panel">
+            <div class="panel-title">
+              <h3>盈亏分析</h3>
+              <div class="tabs">
+                <button class="active" data-pnl-view="curve">曲线</button>
+                <button data-pnl-view="calendar">日历</button>
+                <button data-pnl-period="day">日</button>
+                <button data-pnl-period="month">月</button>
+                <button data-pnl-period="year">年</button>
+              </div>
+            </div>
+            <canvas id="returnChart" width="720" height="230"></canvas>
+            <div id="pnlCalendar" class="pnl-calendar" hidden></div>
+          </article>
+
+          <article class="panel risk-panel">
+            <div class="panel-title">
+              <h3>风险提醒</h3>
+              <button id="riskMoreBtn">更多 ›</button>
+            </div>
+            <ul id="riskList">
+              <li>正在读取大盘和板块资金流...</li>
+            </ul>
+          </article>
+
+          <article class="panel actions-panel">
+            <div class="panel-title">
+              <h3>快捷操作</h3>
+            </div>
+            <div class="quick-actions">
+              <button id="importBtn"><span>☁</span>数据导入</button>
+              <button id="addBtn"><span>＋</span>添加持仓</button>
+              <button id="tradeBtn"><span>⇄</span>记录交易</button>
+              <button id="clearBtn"><span>⌫</span>清空持仓</button>
+              <button><span>⇩</span>导出数据</button>
+              <button><span>▥</span>收益分析</button>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <div id="modalBackdrop" class="modal-backdrop" hidden>
+      <form id="holdingForm" class="modal">
+        <input type="hidden" name="id" />
+        <div class="panel-title">
+          <h3 id="holdingModalTitle">添加持仓</h3>
+          <button type="button" id="closeModal">×</button>
+        </div>
+        <div class="form-grid">
+          <label>市场
+            <select name="market">
+              <option value="A股">A股</option>
+              <option value="美股">美股</option>
+            </select>
+          </label>
+          <label>币种
+            <select name="currency">
+              <option value="CNY">CNY</option>
+              <option value="USD">USD</option>
+            </select>
+          </label>
+          <label>名称<input name="name" placeholder="例如：腾讯控股" required /></label>
+          <label>代码<input name="ticker" placeholder="例如：00700" required /></label>
+          <label>数量<input name="qty" type="number" min="0" step="0.01" required /></label>
+          <label>成本价<input name="cost" type="number" min="0" step="0.01" required /></label>
+          <label>现价<input name="price" type="number" min="0" step="0.01" required /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="deleteHoldingBtn" class="danger-action" hidden>删除</button>
+          <span class="modal-spacer"></span>
+          <button type="button" id="cancelModal">取消</button>
+          <button type="submit" id="saveHoldingBtn">保存持仓</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="tradeModalBackdrop" class="modal-backdrop" hidden>
+      <form id="tradeForm" class="modal">
+        <div class="panel-title">
+          <h3>记录交易</h3>
+          <button type="button" id="closeTradeModal">×</button>
+        </div>
+        <div class="form-grid">
+          <label>市场
+            <select name="market">
+              <option value="A">A股</option>
+              <option value="US">美股</option>
+            </select>
+          </label>
+          <label>方向
+            <select name="side">
+              <option value="BUY">买入</option>
+              <option value="SELL">卖出</option>
+              <option value="CLOSE">清仓</option>
+            </select>
+          </label>
+          <label>名称<input name="name" placeholder="例如：西部材料" required /></label>
+          <label>代码<input name="ticker" placeholder="例如：002149" required /></label>
+          <label>数量<input name="qty" type="number" min="0" step="0.01" required /></label>
+          <label>成交价<input name="price" type="number" min="0" step="0.01" required /></label>
+          <label>手续费<input name="fee" type="number" min="0" step="0.01" value="0" /></label>
+          <label>交易日期<input name="tradeDate" type="date" required /></label>
+        </div>
+        <div class="modal-actions">
+          <span class="modal-spacer"></span>
+          <button type="button" id="cancelTradeModal">取消</button>
+          <button type="submit">保存交易</button>
+        </div>
+      </form>
+    </div>
+
+    <input id="csvInput" type="file" accept=".csv,text/csv" hidden />
+    <div id="toast" class="toast">行情已刷新</div>
+    <script src="app.js"></script>
+  </body>
+</html>

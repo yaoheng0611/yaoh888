@@ -1,0 +1,14 @@
+{
+  "name": "yaoh888-investment-room",
+  "version": "1.0.0",
+  "private": true,
+  "description": "YaoH investment dashboard with quotes, news, and DeepSeek advisor.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check app.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
