@@ -700,6 +700,10 @@ tfoot td {
   min-height: 252px;
 }
 
+.trade-records-panel {
+  grid-column: 1 / 3;
+}
+
 .risk-panel,
 .actions-panel {
   grid-column: 3 / 4;
@@ -741,6 +745,57 @@ tfoot td {
   border-radius: 7px;
   color: #eaf2ff;
   background: linear-gradient(135deg, rgba(35, 111, 255, 0.92), rgba(114, 73, 255, 0.92));
+}
+
+.trade-records-panel .panel-title button {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 7px;
+  color: #eaf2ff;
+  background: linear-gradient(135deg, rgba(35, 111, 255, 0.92), rgba(114, 73, 255, 0.92));
+}
+
+.trade-table-wrap {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.trade-records-panel table {
+  min-width: 780px;
+}
+
+.trade-records-panel th,
+.trade-records-panel td {
+  padding: 10px 8px;
+  white-space: nowrap;
+}
+
+.trade-records-panel th:nth-child(n + 4),
+.trade-records-panel td:nth-child(n + 4) {
+  text-align: right;
+}
+
+.trade-side {
+  display: inline-flex;
+  min-width: 42px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(138, 162, 204, 0.12);
+}
+
+.trade-side.buy {
+  color: #42da7b;
+  background: rgba(66, 218, 123, 0.12);
+}
+
+.trade-side.sell,
+.trade-side.close {
+  color: #ffb453;
+  background: rgba(255, 180, 83, 0.12);
 }
 
 .advisor-model-select {
@@ -1065,6 +1120,10 @@ tfoot td {
 
   .a-holdings,
   .us-holdings {
+    grid-column: 1 / -1;
+  }
+
+  .trade-records-panel {
     grid-column: 1 / -1;
   }
 

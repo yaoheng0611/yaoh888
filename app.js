@@ -93,6 +93,10 @@ function classFor(value) {
   return value >= 0 ? "gain" : "loss";
 }
 
+function tradeSideText(side) {
+  return ({ BUY: "买入", SELL: "卖出", CLOSE: "清仓" })[side] || side;
+}
+
 function totals() {
   const invested = state.holdings.reduce((sum, item) => sum + cnyValue(item, true), 0);
   const market = state.holdings.reduce((sum, item) => sum + cnyValue(item), 0);
@@ -337,6 +341,7 @@ function renderHoldings() {
           <td>
             <div class="row-actions">
               <button type="button" data-action="edit" data-id="${item.id}" title="编辑">&#9998;</button>
+              <button type="button" data-action="trade" data-id="${item.id}" title="记录交易">⇄</button>
             </div>
           </td>
         </tr>
@@ -606,8 +611,28 @@ function render() {
   renderWatchlist();
   renderNews();
   renderRisks();
+  renderTrades();
   renderAdvisorStatus();
   renderCharts();
+}
+
+function renderTrades() {
+  const rows = state.transactions || [];
+  const body = document.getElementById("tradeRows");
+  if (!body) return;
+  const realized = rows.reduce((sum, item) => sum + Number(item.realizedPnl || 0), 0);
+  setText("tradeSummary", `${rows.length} 笔交易 · 实现盈亏 ${realized >= 0 ? "+" : ""}${money(realized)}`);
+  body.innerHTML = rows.length ? rows.map((item) => `
+    <tr>
+      <td>${item.tradeDate}</td>
+      <td><span class="trade-side ${String(item.side).toLowerCase()}">${tradeSideText(item.side)}</span></td>
+      <td>${item.name}<small>${item.ticker} · ${item.market}</small></td>
+      <td>${Number(item.qty).toLocaleString("zh-CN")}</td>
+      <td>${tableMoney(item.price, item.currency)}</td>
+      <td>${tableMoney(item.fee || 0, item.currency)}</td>
+      <td class="${classFor(Number(item.realizedPnl || 0))}">${Number(item.realizedPnl || 0) >= 0 ? "+" : ""}${tableMoney(item.realizedPnl || 0, item.currency)}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="7">暂无交易记录。点击右上角“记录交易”开始记录买入、卖出或清仓。</td></tr>`;
 }
 
 function renderAdvisorStatus() {
@@ -781,6 +806,15 @@ async function handleHoldingAction(event) {
     openModal(holding);
     return;
   }
+  if (button.dataset.action === "trade") {
+    openTradeModal({
+      market: holding.market === "美股" ? "US" : "A",
+      name: holding.name,
+      ticker: holding.ticker,
+      qty: holding.qty,
+      price: holding.price
+    });
+  }
 }
 
 async function deleteCurrentHolding() {
@@ -931,6 +965,7 @@ document.getElementById("refreshIntervalSelect").addEventListener("change", (eve
 document.getElementById("addBtn").addEventListener("click", openModal);
 document.getElementById("topAddBtn").addEventListener("click", openModal);
 document.getElementById("tradeBtn").addEventListener("click", () => openTradeModal());
+document.getElementById("tradeRecordAddBtn").addEventListener("click", () => openTradeModal());
 document.getElementById("clearBtn").addEventListener("click", clearHoldings);
 document.getElementById("closeModal").addEventListener("click", closeModal);
 document.getElementById("cancelModal").addEventListener("click", closeModal);
