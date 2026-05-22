@@ -277,6 +277,24 @@ async function loadDashboard() {
 
 function updateMetrics() {
   const t = totals();
+  const byMarket = (market) => {
+    const items = state.holdings.filter((h) => h.market === market);
+    const marketValue = items.reduce((sum, h) => sum + Number(h.marketValue ?? cnyValue(h)), 0);
+    const invested = items.reduce((sum, h) => sum + cnyValue(h, true), 0);
+    const pnl = items.reduce((sum, h) => sum + Number(h.totalPnl ?? 0), 0);
+    const dayPnl = items.reduce((sum, h) => sum + Number(h.dayPnl ?? 0), 0);
+    const dayBase = items.reduce((sum, h) => sum + Number(h.dayBaseValue ?? 0), 0);
+    return {
+      marketValue,
+      invested,
+      pnl,
+      dayPnl,
+      totalRate: (pnl / Math.max(invested, 1)) * 100,
+      dayRate: (dayPnl / Math.max(dayBase, 1)) * 100
+    };
+  };
+  const ashare = byMarket("A股");
+  const us = byMarket("美股");
   const dailyRate = state.summaries?.total?.dayPnlRate ?? ((t.daily / Math.max(t.dayBase, 1)) * 100);
   const totalRate = (t.pnl / Math.max(t.invested, 1)) * 100;
   const cashRate = (state.cash / Math.max(t.total, 1)) * 100;
@@ -292,13 +310,27 @@ function updateMetrics() {
   setText("cashValue", money(state.cash));
   setText("availableCash", money(state.cash * 0.9485));
   setText("availableRate", `${state.cash ? ((state.cash * 0.9485) / state.cash * 100).toFixed(2) : "0.00"}%`);
+  setText("assetAshare", money(ashare.marketValue));
+  setText("assetUs", money(us.marketValue));
+  setText("todayAshare", `${ashare.dayPnl >= 0 ? "+" : ""}${money(ashare.dayPnl)}`);
+  setText("todayUs", `${us.dayPnl >= 0 ? "+" : ""}${money(us.dayPnl)}`);
+  setText("pnlAshare", `${ashare.pnl >= 0 ? "+" : ""}${money(ashare.pnl)}`);
+  setText("pnlUs", `${us.pnl >= 0 ? "+" : ""}${money(us.pnl)}`);
+  setText("assetAshareRate", `${((ashare.marketValue / Math.max(t.total, 1)) * 100).toFixed(2)}%`);
+  setText("assetUsRate", `${((us.marketValue / Math.max(t.total, 1)) * 100).toFixed(2)}%`);
+  setText("cashAccountValue", money(state.cash));
+  setText("availableAccountRate", `${state.cash ? ((state.cash * 0.9485) / state.cash * 100).toFixed(2) : "0.00"}%`);
   setText("donutTotal", `¥ ${Math.round(t.total).toLocaleString("zh-CN")}`);
 
   document.getElementById("todayPnl").className = classFor(t.daily);
   document.getElementById("totalPnl").className = classFor(t.pnl);
+  document.getElementById("todayAshare").className = classFor(ashare.dayPnl);
+  document.getElementById("todayUs").className = classFor(us.dayPnl);
+  document.getElementById("pnlAshare").className = classFor(ashare.pnl);
+  document.getElementById("pnlUs").className = classFor(us.pnl);
 
-  const aValue = state.holdings.filter((h) => h.market === "A股").reduce((sum, h) => sum + cnyValue(h), 0);
-  const uValue = state.holdings.filter((h) => h.market === "美股").reduce((sum, h) => sum + cnyValue(h), 0);
+  const aValue = ashare.marketValue;
+  const uValue = us.marketValue;
   setText("asharePct", `${((aValue / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
   setText("usPct", `${((uValue / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
   setText("cashPct", `${((state.cash / Math.max(t.total, 1)) * 100).toFixed(1)}%`);

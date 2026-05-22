@@ -355,6 +355,28 @@ button {
   line-height: 1.45;
 }
 
+.metric-breakdown {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(138, 162, 204, 0.1);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.metric-breakdown span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.metric-breakdown b {
+  color: #dfeaff;
+  font-weight: 700;
+}
+
 .metric-card > div:last-child {
   min-width: 0;
 }
