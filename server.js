@@ -188,6 +188,44 @@ function setSetting(key, value) {
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, String(value));
 }
 
+function cashAccounts() {
+  const legacyCash = Number(getSetting("cash", "71904"));
+  let ashare = Number(getSetting("cashAshare", "NaN"));
+  let us = Number(getSetting("cashUs", "NaN"));
+  if (!Number.isFinite(ashare) && !Number.isFinite(us)) {
+    ashare = legacyCash;
+    us = 0;
+    setCashAccount("A股", ashare);
+    setCashAccount("美股", us);
+  }
+  if (!Number.isFinite(ashare)) ashare = 0;
+  if (!Number.isFinite(us)) us = 0;
+  const totalCny = Number((ashare + (us * FX)).toFixed(2));
+  setSetting("cash", totalCny);
+  return {
+    ashare: { market: "A股", currency: "CNY", amount: Number(ashare.toFixed(2)), amountCny: Number(ashare.toFixed(2)) },
+    us: { market: "美股", currency: "USD", amount: Number(us.toFixed(2)), amountCny: Number((us * FX).toFixed(2)) },
+    totalCny
+  };
+}
+
+function setCashAccount(market, amount) {
+  const key = market === "美股" ? "cashUs" : "cashAshare";
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, String(Number(amount || 0).toFixed(2)));
+}
+
+function changeCashAccount(market, delta) {
+  const accounts = cashAccounts();
+  const current = market === "美股" ? accounts.us.amount : accounts.ashare.amount;
+  setCashAccount(market, current + Number(delta || 0));
+  return cashAccounts();
+}
+
+function cashAccountForMarket(market) {
+  const accounts = cashAccounts();
+  return market === "美股" ? accounts.us.amount : accounts.ashare.amount;
+}
+
 function holdings() {
   return db.prepare(`
     SELECT id, market, name, ticker, qty, cost, price, currency, updated_at AS updatedAt
@@ -559,10 +597,12 @@ async function marketIntel(force = false) {
 
 function advisorPayload(question = "") {
   const enriched = enrichHoldings();
-  const cash = Number(getSetting("cash", "71904"));
+  const accounts = cashAccounts();
+  const cash = accounts.totalCny;
   return {
     generatedAt: new Date().toISOString(),
     cash,
+    cashAccounts: accounts,
     summaries: {
       ashare: groupSummary(enriched, "A股"),
       us: groupSummary(enriched, "美股"),
@@ -648,10 +688,12 @@ function dashboard() {
   const providerConfig = quoteProviderConfig();
   const advisorConfig = deepseekConfig();
   const enriched = enrichHoldings();
-  const cash = Number(getSetting("cash", "71904"));
+  const accounts = cashAccounts();
+  const cash = accounts.totalCny;
   const marketValue = enriched.reduce((sum, item) => sum + item.marketValue, 0);
   return {
     cash,
+    cashAccounts: accounts,
     holdings: enriched,
     summaries: {
       ashare: groupSummary(enriched, "A股"),
@@ -924,28 +966,29 @@ function applyTransactionToPortfolio(record, direction = 1) {
   const qty = Number(trade.qty);
   const tradeValue = qty * Number(trade.price);
   const fee = Number(trade.fee || 0);
-  let cash = Number(getSetting("cash", "0"));
+  let cash = cashAccountForMarket(trade.market);
 
   if (trade.side === "BUY") {
     if (direction > 0) {
       upsertHoldingFromTrade(trade, qty, Number(trade.price));
-      cash -= currencyToCny(tradeValue + fee, trade.currency);
+      cash -= tradeValue + fee;
     } else {
       upsertHoldingFromTrade(trade, -qty, Number(trade.price));
-      cash += currencyToCny(tradeValue + fee, trade.currency);
+      cash += tradeValue + fee;
     }
   } else if (direction > 0) {
     const current = findHoldingByTicker(trade.ticker, trade.market);
     if (!current) throw new Error("No holding found for this sell transaction");
     if (qty > Number(current.qty) + 0.000001) throw new Error("Sell quantity is greater than current holding");
     upsertHoldingFromTrade(trade, -qty, Number(current.cost));
-    cash += currencyToCny(tradeValue - fee, trade.currency);
+    cash += tradeValue - fee;
   } else {
     upsertHoldingFromTrade(trade, qty, costFromRealizedPnl(trade));
-    cash -= currencyToCny(tradeValue - fee, trade.currency);
+    cash -= tradeValue - fee;
   }
 
-  setSetting("cash", Number(cash.toFixed(2)));
+  setCashAccount(trade.market, cash);
+  cashAccounts();
 }
 
 function applyTrade(input) {
@@ -953,8 +996,7 @@ function applyTrade(input) {
   const current = findHoldingByTicker(trade.ticker, trade.market);
   let realizedPnl = 0;
   const tradeValue = trade.qty * trade.price;
-  let cash = Number(getSetting("cash", "0"));
-  const cashDelta = currencyToCny(tradeValue - trade.fee, trade.currency);
+  let cash = cashAccountForMarket(trade.market);
 
   if (trade.side === "BUY") {
     if (current) {
@@ -965,7 +1007,7 @@ function applyTrade(input) {
     } else {
       insertHolding({ market: trade.market, name: trade.name, ticker: trade.ticker, qty: trade.qty, cost: trade.price, price: trade.price, currency: trade.currency });
     }
-    cash -= currencyToCny(tradeValue + trade.fee, trade.currency);
+    cash -= tradeValue + trade.fee;
   } else {
     if (!current) throw new Error("卖出前没有找到这只持仓");
     const sellQty = trade.side === "CLOSE" ? current.qty : trade.qty;
@@ -978,11 +1020,12 @@ function applyTrade(input) {
       db.prepare("UPDATE holdings SET qty = ?, price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
         .run(remainingQty, trade.price, current.id);
     }
-    cash += currencyToCny((sellQty * trade.price) - trade.fee, trade.currency);
+    cash += (sellQty * trade.price) - trade.fee;
     trade.qty = sellQty;
   }
 
-  setSetting("cash", Number(cash.toFixed(2)));
+  setCashAccount(trade.market, cash);
+  cashAccounts();
   db.prepare(`
     INSERT INTO transactions (trade_date, market, ticker, name, side, qty, price, fee, currency, realized_pnl)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -992,7 +1035,7 @@ function applyTrade(input) {
 
 function recordDailySnapshot(date = new Date().toISOString().slice(0, 10), realizedPnl = 0) {
   const enriched = enrichHoldings();
-  const cash = Number(getSetting("cash", "0"));
+  const cash = cashAccounts().totalCny;
   const marketValue = enriched.reduce((sum, item) => sum + item.marketValue, 0);
   const unrealizedPnl = enriched.reduce((sum, item) => sum + item.totalPnl, 0);
   const floatDayPnl = enriched.reduce((sum, item) => sum + item.dayPnl, 0);
@@ -1025,7 +1068,7 @@ function rebuildDailySnapshotForDate(date) {
   if (!date) return;
   const realized = db.prepare("SELECT COALESCE(SUM(realized_pnl), 0) AS total FROM transactions WHERE trade_date = ?").get(date).total;
   const enriched = enrichHoldings();
-  const cash = Number(getSetting("cash", "0"));
+  const cash = cashAccounts().totalCny;
   const marketValue = enriched.reduce((sum, item) => sum + item.marketValue, 0);
   const unrealizedPnl = enriched.reduce((sum, item) => sum + item.totalPnl, 0);
   const floatDayPnl = date === new Date().toISOString().slice(0, 10)
@@ -1197,13 +1240,33 @@ async function handleApi(req, res, url) {
       const input = JSON.parse(await readBody(req));
       if (!Array.isArray(input.holdings)) throw new Error("holdings 必须是数组");
       replaceHoldings(input.holdings);
-      if (input.cash !== undefined) setSetting("cash", Number(input.cash));
+      if (input.cashAccounts) {
+        if (input.cashAccounts.ashare !== undefined) setCashAccount("A股", Number(input.cashAccounts.ashare));
+        if (input.cashAccounts.us !== undefined) setCashAccount("美股", Number(input.cashAccounts.us));
+        cashAccounts();
+      } else if (input.cash !== undefined) {
+        setCashAccount("A股", Number(input.cash));
+        setCashAccount("美股", 0);
+        cashAccounts();
+      }
       sendJson(res, 200, dashboard());
       return true;
     }
 
     if (req.method === "DELETE" && url.pathname === "/api/holdings") {
       replaceHoldings([]);
+      sendJson(res, 200, dashboard());
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/cash") {
+      const input = JSON.parse(await readBody(req));
+      const market = String(input.market || "").toUpperCase() === "US" || input.market === "美股" ? "美股" : "A股";
+      const amount = Number(input.amount);
+      if (!Number.isFinite(amount)) throw new Error("资金金额必须是数字");
+      if (input.mode === "set") setCashAccount(market, amount);
+      else changeCashAccount(market, amount);
+      cashAccounts();
       sendJson(res, 200, dashboard());
       return true;
     }

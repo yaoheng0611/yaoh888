@@ -5,6 +5,11 @@ const STORAGE_KEY = "investment-dashboard-local-data";
 const AUTO_REFRESH_KEY = "investment-dashboard-auto-refresh";
 const defaultDashboard = {
   cash: 71904,
+  cashAccounts: {
+    ashare: { market: "A股", currency: "CNY", amount: 71904, amountCny: 71904 },
+    us: { market: "美股", currency: "USD", amount: 0, amountCny: 0 },
+    totalCny: 71904
+  },
   holdings: [
     { id: 1, market: "A股", name: "聚光科技", ticker: "300203", qty: 200, cost: 18.5, price: 21.3, currency: "CNY" },
     { id: 2, market: "A股", name: "紫金矿业", ticker: "601899", qty: 500, cost: 15.2, price: 17.8, currency: "CNY" },
@@ -30,6 +35,7 @@ const defaultDashboard = {
 
 const state = {
   cash: 0,
+  cashAccounts: null,
   holdings: [],
   watchlist: [],
   news: [],
@@ -107,6 +113,18 @@ function totals() {
   return { invested, market, total, pnl, daily, dayBase };
 }
 
+function currentCashAccounts() {
+  const accounts = state.cashAccounts || {};
+  const ashare = accounts.ashare || { currency: "CNY", amount: state.cash, amountCny: state.cash };
+  const us = accounts.us || { currency: "USD", amount: 0, amountCny: 0 };
+  const totalCny = Number(accounts.totalCny ?? (Number(ashare.amountCny || 0) + Number(us.amountCny || 0)));
+  return {
+    ashare: { ...ashare, amount: Number(ashare.amount || 0), amountCny: Number(ashare.amountCny || 0) },
+    us: { ...us, amount: Number(us.amount || 0), amountCny: Number(us.amountCny || 0) },
+    totalCny
+  };
+}
+
 async function api(path, options = {}) {
   if (STATIC_PAGES_MODE) return localApi(path, options);
   const response = await fetch(path, options);
@@ -168,7 +186,39 @@ async function localApi(path, options = {}) {
       ...normalizeLocalHolding(row),
       updatedAt: new Date().toISOString()
     }));
-    if (input.cash !== undefined) data.cash = Number(input.cash);
+    if (input.cashAccounts) {
+      data.cashAccounts = {
+        ashare: { market: "A股", currency: "CNY", amount: Number(input.cashAccounts.ashare || 0), amountCny: Number(input.cashAccounts.ashare || 0) },
+        us: { market: "美股", currency: "USD", amount: Number(input.cashAccounts.us || 0), amountCny: Number(input.cashAccounts.us || 0) * FX }
+      };
+      data.cashAccounts.totalCny = data.cashAccounts.ashare.amountCny + data.cashAccounts.us.amountCny;
+      data.cash = data.cashAccounts.totalCny;
+    } else if (input.cash !== undefined) {
+      data.cash = Number(input.cash);
+      data.cashAccounts = {
+        ashare: { market: "A股", currency: "CNY", amount: data.cash, amountCny: data.cash },
+        us: { market: "美股", currency: "USD", amount: 0, amountCny: 0 },
+        totalCny: data.cash
+      };
+    }
+    return saveLocalData(data);
+  }
+
+  if (path === "/api/cash" && method === "POST") {
+    const input = JSON.parse(options.body || "{}");
+    const accounts = data.cashAccounts || {
+      ashare: { market: "A股", currency: "CNY", amount: Number(data.cash || 0), amountCny: Number(data.cash || 0) },
+      us: { market: "美股", currency: "USD", amount: 0, amountCny: 0 },
+      totalCny: Number(data.cash || 0)
+    };
+    const target = input.market === "US" ? accounts.us : accounts.ashare;
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount)) throw new Error("资金金额必须是数字");
+    target.amount = input.mode === "set" ? amount : Number(target.amount || 0) + amount;
+    target.amountCny = target.currency === "USD" ? target.amount * FX : target.amount;
+    accounts.totalCny = Number(accounts.ashare.amountCny || 0) + Number(accounts.us.amountCny || 0);
+    data.cashAccounts = accounts;
+    data.cash = accounts.totalCny;
     return saveLocalData(data);
   }
 
@@ -244,6 +294,7 @@ function parseLocalCsv(text) {
 
 function applyDashboard(data) {
   state.cash = Number(data.cash || 0);
+  state.cashAccounts = data.cashAccounts || null;
   state.holdings = (data.holdings || []).map((item) => ({
     ...item,
     qty: Number(item.qty),
@@ -297,7 +348,12 @@ function updateMetrics() {
   const us = byMarket("美股");
   const dailyRate = state.summaries?.total?.dayPnlRate ?? ((t.daily / Math.max(t.dayBase, 1)) * 100);
   const totalRate = (t.pnl / Math.max(t.invested, 1)) * 100;
-  const cashRate = (state.cash / Math.max(t.total, 1)) * 100;
+  const accounts = currentCashAccounts();
+  const cashRate = (accounts.totalCny / Math.max(t.total, 1)) * 100;
+  document.getElementById("assetAshareRate").parentElement.firstChild.textContent = "A股现金 ";
+  document.getElementById("assetUsRate").parentElement.firstChild.textContent = "美股现金 ";
+  document.getElementById("cashAccountValue").parentElement.firstChild.textContent = "A股可用 ";
+  document.getElementById("availableAccountRate").parentElement.firstChild.textContent = "美股可用 ";
 
   setText("totalAssets", money(t.total));
   setText("dailyRate", percent(dailyRate));
@@ -307,19 +363,19 @@ function updateMetrics() {
   setText("totalPnl", `${t.pnl >= 0 ? "+" : ""}${money(t.pnl)}`);
   setText("totalRate", percent(totalRate));
   setText("cashRate", `${cashRate.toFixed(2)}%`);
-  setText("cashValue", money(state.cash));
-  setText("availableCash", money(state.cash * 0.9485));
-  setText("availableRate", `${state.cash ? ((state.cash * 0.9485) / state.cash * 100).toFixed(2) : "0.00"}%`);
+  setText("cashValue", money(accounts.totalCny));
+  setText("availableCash", money(accounts.totalCny));
+  setText("availableRate", "100.00%");
   setText("assetAshare", money(ashare.marketValue));
   setText("assetUs", money(us.marketValue));
   setText("todayAshare", `${ashare.dayPnl >= 0 ? "+" : ""}${money(ashare.dayPnl)}`);
   setText("todayUs", `${us.dayPnl >= 0 ? "+" : ""}${money(us.dayPnl)}`);
   setText("pnlAshare", `${ashare.pnl >= 0 ? "+" : ""}${money(ashare.pnl)}`);
   setText("pnlUs", `${us.pnl >= 0 ? "+" : ""}${money(us.pnl)}`);
-  setText("assetAshareRate", `${((ashare.marketValue / Math.max(t.total, 1)) * 100).toFixed(2)}%`);
-  setText("assetUsRate", `${((us.marketValue / Math.max(t.total, 1)) * 100).toFixed(2)}%`);
-  setText("cashAccountValue", money(state.cash));
-  setText("availableAccountRate", `${state.cash ? ((state.cash * 0.9485) / state.cash * 100).toFixed(2) : "0.00"}%`);
+  setText("assetAshareRate", money(accounts.ashare.amount, "CNY"));
+  setText("assetUsRate", money(accounts.us.amount, "USD"));
+  setText("cashAccountValue", money(accounts.ashare.amount, "CNY"));
+  setText("availableAccountRate", money(accounts.us.amount, "USD"));
   setText("donutTotal", `¥ ${Math.round(t.total).toLocaleString("zh-CN")}`);
 
   document.getElementById("todayPnl").className = classFor(t.daily);
@@ -333,10 +389,10 @@ function updateMetrics() {
   const uValue = us.marketValue;
   setText("asharePct", `${((aValue / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
   setText("usPct", `${((uValue / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
-  setText("cashPct", `${((state.cash / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
+  setText("cashPct", `${((accounts.totalCny / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
   setText("ashareValue", money(aValue));
   setText("usValue", money(uValue));
-  setText("cashLegend", money(state.cash));
+  setText("cashLegend", money(accounts.totalCny));
 
   const aEnd = (aValue / Math.max(t.total, 1)) * 100;
   const uEnd = aEnd + (uValue / Math.max(t.total, 1)) * 100;
@@ -752,6 +808,84 @@ function turnNewsPage(delta) {
   renderNews();
 }
 
+function ensureCashControls() {
+  if (!document.getElementById("cashBtn")) {
+    const tradeBtn = document.getElementById("tradeBtn");
+    tradeBtn?.insertAdjacentHTML("afterend", '<button id="cashBtn" type="button"><span>¥</span>调整资金</button>');
+  }
+  if (!document.getElementById("cashModalBackdrop")) {
+    document.body.insertAdjacentHTML("beforeend", `
+      <div id="cashModalBackdrop" class="modal-backdrop" hidden>
+        <form id="cashForm" class="modal">
+          <div class="panel-title">
+            <h3>调整可用资金</h3>
+            <button type="button" id="closeCashModal">×</button>
+          </div>
+          <div class="form-grid">
+            <label>账户
+              <select name="market">
+                <option value="A">A股现金（CNY）</option>
+                <option value="US">美股现金（USD）</option>
+              </select>
+            </label>
+            <label>方式
+              <select name="mode">
+                <option value="adjust">追加/减少</option>
+                <option value="set">直接设置余额</option>
+              </select>
+            </label>
+            <label>金额<input name="amount" type="number" step="0.01" required /></label>
+            <label>当前余额<input name="current" readonly /></label>
+          </div>
+          <div class="modal-actions">
+            <button type="button" id="cancelCashModal">取消</button>
+            <button type="submit">保存资金</button>
+          </div>
+        </form>
+      </div>
+    `);
+  }
+}
+
+function syncCashFormCurrent() {
+  const form = document.getElementById("cashForm");
+  if (!form) return;
+  const accounts = currentCashAccounts();
+  const isUs = form.elements.market.value === "US";
+  form.elements.current.value = isUs ? money(accounts.us.amount, "USD") : money(accounts.ashare.amount, "CNY");
+}
+
+function openCashModal() {
+  ensureCashControls();
+  const form = document.getElementById("cashForm");
+  form.reset();
+  form.elements.mode.value = "adjust";
+  syncCashFormCurrent();
+  document.getElementById("cashModalBackdrop").hidden = false;
+}
+
+function closeCashModal() {
+  document.getElementById("cashModalBackdrop").hidden = true;
+  document.getElementById("cashForm").reset();
+}
+
+async function submitCash(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  try {
+    applyDashboard(await api("/api/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    }));
+    closeCashModal();
+    render();
+    showToast("可用资金已更新");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 function openModal(holding = null) {
   const form = document.getElementById("holdingForm");
   form.reset();
@@ -1054,9 +1188,15 @@ document.getElementById("refreshTop").addEventListener("click", refreshData);
 document.getElementById("refreshSide").addEventListener("click", refreshData);
 document.getElementById("autoRefreshToggle").addEventListener("change", (event) => setAutoRefresh(event.target.checked));
 document.getElementById("refreshIntervalSelect").addEventListener("change", (event) => setAutoRefreshInterval(event.target.value));
+ensureCashControls();
 document.getElementById("addBtn").addEventListener("click", openModal);
 document.getElementById("topAddBtn").addEventListener("click", openModal);
 document.getElementById("tradeBtn").addEventListener("click", () => openTradeModal());
+document.getElementById("cashBtn").addEventListener("click", openCashModal);
+document.getElementById("closeCashModal").addEventListener("click", closeCashModal);
+document.getElementById("cancelCashModal").addEventListener("click", closeCashModal);
+document.getElementById("cashForm").elements.market.addEventListener("change", syncCashFormCurrent);
+document.getElementById("cashForm").addEventListener("submit", submitCash);
 document.getElementById("tradeRecordAddBtn").addEventListener("click", () => openTradeModal());
 document.getElementById("clearBtn").addEventListener("click", clearHoldings);
 document.getElementById("closeModal").addEventListener("click", closeModal);
