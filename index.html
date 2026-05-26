@@ -264,6 +264,7 @@
                     <th>成交价</th>
                     <th>手续费</th>
                     <th>实现盈亏</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="tradeRows"></tbody>
@@ -335,8 +336,9 @@
 
     <div id="tradeModalBackdrop" class="modal-backdrop" hidden>
       <form id="tradeForm" class="modal">
+        <input type="hidden" name="id" />
         <div class="panel-title">
-          <h3>记录交易</h3>
+          <h3 id="tradeModalTitle">记录交易</h3>
           <button type="button" id="closeTradeModal">×</button>
         </div>
         <div class="form-grid">
@@ -358,12 +360,14 @@
           <label>数量<input name="qty" type="number" min="0" step="0.01" required /></label>
           <label>成交价<input name="price" type="number" min="0" step="0.01" required /></label>
           <label>手续费<input name="fee" type="number" min="0" step="0.01" value="0" /></label>
+          <label>实现盈亏<input name="realizedPnl" type="number" step="0.01" value="0" /></label>
           <label>交易日期<input name="tradeDate" type="date" required /></label>
         </div>
         <div class="modal-actions">
+          <button type="button" id="deleteTradeBtn" class="danger-action" hidden>删除交易</button>
           <span class="modal-spacer"></span>
           <button type="button" id="cancelTradeModal">取消</button>
-          <button type="submit">保存交易</button>
+          <button type="submit" id="saveTradeBtn">保存交易</button>
         </div>
       </form>
     </div>

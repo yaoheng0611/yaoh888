@@ -802,8 +802,150 @@ function normalizeTrade(input) {
   return trade;
 }
 
+function normalizeTransactionRecord(input, existing = {}) {
+  const marketInput = String(input.market || existing.market || "").trim();
+  const market = ["US", "USA", "美股"].includes(marketInput.toUpperCase ? marketInput.toUpperCase() : marketInput) || marketInput === "美股" ? "美股" : "A股";
+  const currency = String(input.currency || existing.currency || (market === "美股" ? "USD" : "CNY")).trim().toUpperCase();
+  const side = String(input.side || existing.side || "").trim().toUpperCase();
+  const record = {
+    tradeDate: String(input.tradeDate || existing.tradeDate || new Date().toISOString().slice(0, 10)).trim(),
+    market,
+    ticker: String(input.ticker || existing.ticker || "").trim().toUpperCase(),
+    name: String(input.name || existing.name || "").trim(),
+    side,
+    qty: Number(input.qty ?? existing.qty),
+    price: Number(input.price ?? existing.price),
+    fee: Number(input.fee ?? existing.fee ?? 0),
+    currency,
+    realizedPnl: Number(input.realizedPnl ?? existing.realizedPnl ?? 0)
+  };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(record.tradeDate)) throw new Error("交易日期格式必须是 YYYY-MM-DD");
+  if (!["BUY", "SELL", "CLOSE"].includes(record.side)) throw new Error("交易方向必须是 BUY、SELL 或 CLOSE");
+  if (!record.name) throw new Error("名称不能为空");
+  if (!record.ticker) throw new Error("代码不能为空");
+  if (!Number.isFinite(record.qty) || record.qty <= 0) throw new Error("交易数量必须大于 0");
+  if (!Number.isFinite(record.price) || record.price <= 0) throw new Error("成交价必须大于 0");
+  if (!Number.isFinite(record.fee) || record.fee < 0) throw new Error("手续费不能小于 0");
+  if (!Number.isFinite(record.realizedPnl)) throw new Error("实现盈亏必须是数字");
+  if (!["CNY", "USD"].includes(record.currency)) throw new Error("币种必须是 CNY 或 USD");
+  return record;
+}
+
+function transactionById(id) {
+  return db.prepare(`
+    SELECT id, trade_date AS tradeDate, market, ticker, name, side, qty, price, fee, currency, realized_pnl AS realizedPnl, created_at AS createdAt
+    FROM transactions
+    WHERE id = ?
+  `).get(id);
+}
+
+function updateTransaction(id, input) {
+  const existing = transactionById(id);
+  if (!existing) throw new Error("没有找到这笔交易记录");
+  const record = normalizeTransactionRecord(input, existing);
+  db.exec("BEGIN");
+  try {
+    applyTransactionToPortfolio(existing, -1);
+    db.prepare(`
+      UPDATE transactions
+      SET trade_date = ?, market = ?, ticker = ?, name = ?, side = ?, qty = ?, price = ?, fee = ?, currency = ?, realized_pnl = ?
+      WHERE id = ?
+    `).run(record.tradeDate, record.market, record.ticker, record.name, record.side, record.qty, record.price, record.fee, record.currency, record.realizedPnl, id);
+    applyTransactionToPortfolio(record, 1);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  rebuildDailySnapshotForDate(existing.tradeDate);
+  rebuildDailySnapshotForDate(record.tradeDate);
+}
+
+function deleteTransaction(id) {
+  const existing = transactionById(id);
+  if (!existing) throw new Error("没有找到这笔交易记录");
+  db.exec("BEGIN");
+  try {
+    applyTransactionToPortfolio(existing, -1);
+    db.prepare("DELETE FROM transactions WHERE id = ?").run(id);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  rebuildDailySnapshotForDate(existing.tradeDate);
+}
+
 function findHoldingByTicker(ticker, market) {
   return db.prepare("SELECT * FROM holdings WHERE ticker = ? AND market = ? ORDER BY id LIMIT 1").get(ticker, market);
+}
+
+function upsertHoldingFromTrade(trade, qtyDelta, costBasis) {
+  const current = findHoldingByTicker(trade.ticker, trade.market);
+  if (!current) {
+    if (qtyDelta <= 0) return;
+    insertHolding({
+      market: trade.market,
+      name: trade.name,
+      ticker: trade.ticker,
+      qty: qtyDelta,
+      cost: costBasis,
+      price: trade.price,
+      currency: trade.currency
+    });
+    return;
+  }
+
+  const newQty = Number(current.qty) + qtyDelta;
+  if (newQty <= 0.000001) {
+    db.prepare("DELETE FROM holdings WHERE id = ?").run(current.id);
+    return;
+  }
+
+  let newCost = Number(current.cost);
+  if (qtyDelta > 0) {
+    newCost = ((Number(current.qty) * Number(current.cost)) + (qtyDelta * costBasis)) / newQty;
+  }
+
+  db.prepare("UPDATE holdings SET name = ?, qty = ?, cost = ?, price = ?, currency = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .run(trade.name, Number(newQty.toFixed(6)), Number(newCost.toFixed(4)), Number(trade.price), trade.currency, current.id);
+}
+
+function costFromRealizedPnl(trade) {
+  const qty = Math.max(Number(trade.qty || 0), 1);
+  const realized = Number(trade.realizedPnl ?? trade.realized_pnl ?? 0);
+  const fee = Number(trade.fee || 0);
+  const derived = Number(trade.price) - ((realized + fee) / qty);
+  return Number.isFinite(derived) && derived > 0 ? derived : Number(trade.price);
+}
+
+function applyTransactionToPortfolio(record, direction = 1) {
+  const trade = normalizeTransactionRecord(record, record);
+  const qty = Number(trade.qty);
+  const tradeValue = qty * Number(trade.price);
+  const fee = Number(trade.fee || 0);
+  let cash = Number(getSetting("cash", "0"));
+
+  if (trade.side === "BUY") {
+    if (direction > 0) {
+      upsertHoldingFromTrade(trade, qty, Number(trade.price));
+      cash -= currencyToCny(tradeValue + fee, trade.currency);
+    } else {
+      upsertHoldingFromTrade(trade, -qty, Number(trade.price));
+      cash += currencyToCny(tradeValue + fee, trade.currency);
+    }
+  } else if (direction > 0) {
+    const current = findHoldingByTicker(trade.ticker, trade.market);
+    if (!current) throw new Error("No holding found for this sell transaction");
+    if (qty > Number(current.qty) + 0.000001) throw new Error("Sell quantity is greater than current holding");
+    upsertHoldingFromTrade(trade, -qty, Number(current.cost));
+    cash += currencyToCny(tradeValue - fee, trade.currency);
+  } else {
+    upsertHoldingFromTrade(trade, qty, costFromRealizedPnl(trade));
+    cash -= currencyToCny(tradeValue - fee, trade.currency);
+  }
+
+  setSetting("cash", Number(cash.toFixed(2)));
 }
 
 function applyTrade(input) {
@@ -875,6 +1017,39 @@ function recordDailySnapshot(date = new Date().toISOString().slice(0, 10), reali
     Number(cash.toFixed(2)),
     Number(dayPnl.toFixed(2)),
     Number(realizedTotal.toFixed(2)),
+    Number(unrealizedPnl.toFixed(2))
+  );
+}
+
+function rebuildDailySnapshotForDate(date) {
+  if (!date) return;
+  const realized = db.prepare("SELECT COALESCE(SUM(realized_pnl), 0) AS total FROM transactions WHERE trade_date = ?").get(date).total;
+  const enriched = enrichHoldings();
+  const cash = Number(getSetting("cash", "0"));
+  const marketValue = enriched.reduce((sum, item) => sum + item.marketValue, 0);
+  const unrealizedPnl = enriched.reduce((sum, item) => sum + item.totalPnl, 0);
+  const floatDayPnl = date === new Date().toISOString().slice(0, 10)
+    ? enriched.reduce((sum, item) => sum + item.dayPnl, 0)
+    : 0;
+  const dayPnl = Number(realized || 0) + floatDayPnl;
+  db.prepare(`
+    INSERT INTO daily_snapshots (snapshot_date, total_value, market_value, cash, day_pnl, realized_pnl, unrealized_pnl, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(snapshot_date) DO UPDATE SET
+      total_value = excluded.total_value,
+      market_value = excluded.market_value,
+      cash = excluded.cash,
+      day_pnl = excluded.day_pnl,
+      realized_pnl = excluded.realized_pnl,
+      unrealized_pnl = excluded.unrealized_pnl,
+      created_at = CURRENT_TIMESTAMP
+  `).run(
+    date,
+    Number((marketValue + cash).toFixed(2)),
+    Number(marketValue.toFixed(2)),
+    Number(cash.toFixed(2)),
+    Number(dayPnl.toFixed(2)),
+    Number(Number(realized || 0).toFixed(2)),
     Number(unrealizedPnl.toFixed(2))
   );
 }
@@ -1059,6 +1234,20 @@ async function handleApi(req, res, url) {
       const input = JSON.parse(await readBody(req));
       applyTrade(input);
       sendJson(res, 201, dashboard());
+      return true;
+    }
+
+    const transactionMatch = url.pathname.match(/^\/api\/transactions\/(\d+)$/);
+    if (transactionMatch && req.method === "PUT") {
+      const input = JSON.parse(await readBody(req));
+      updateTransaction(Number(transactionMatch[1]), input);
+      sendJson(res, 200, dashboard());
+      return true;
+    }
+
+    if (transactionMatch && req.method === "DELETE") {
+      deleteTransaction(Number(transactionMatch[1]));
+      sendJson(res, 200, dashboard());
       return true;
     }
 

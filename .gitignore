@@ -1,5 +1,6 @@
 .env
 portfolio.db
+portfolio.backup-*.db
 *.log
 node_modules/
 .DS_Store

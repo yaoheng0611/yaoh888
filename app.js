@@ -663,8 +663,14 @@ function renderTrades() {
       <td>${tableMoney(item.price, item.currency)}</td>
       <td>${tableMoney(item.fee || 0, item.currency)}</td>
       <td class="${classFor(Number(item.realizedPnl || 0))}">${Number(item.realizedPnl || 0) >= 0 ? "+" : ""}${tableMoney(item.realizedPnl || 0, item.currency)}</td>
+      <td>
+        <div class="row-actions">
+          <button type="button" data-trade-action="edit" data-id="${item.id}" title="编辑交易">&#9998;</button>
+          <button type="button" data-trade-action="delete" data-id="${item.id}" title="删除交易">×</button>
+        </div>
+      </td>
     </tr>
-  `).join("") : `<tr><td colspan="7">暂无交易记录。点击右上角“记录交易”开始记录买入、卖出或清仓。</td></tr>`;
+  `).join("") : `<tr><td colspan="8">暂无交易记录。点击右上角“记录交易”开始记录买入、卖出或清仓。</td></tr>`;
 }
 
 function renderAdvisorStatus() {
@@ -798,10 +804,14 @@ async function submitHolding(event) {
 function openTradeModal(defaults = {}) {
   const form = document.getElementById("tradeForm");
   form.reset();
+  form.elements.id.value = defaults.id || "";
   form.elements.tradeDate.value = new Date().toISOString().slice(0, 10);
   Object.entries(defaults).forEach(([key, value]) => {
     if (form.elements[key]) form.elements[key].value = value;
   });
+  setText("tradeModalTitle", defaults.id ? "编辑交易" : "记录交易");
+  setText("saveTradeBtn", defaults.id ? "保存修改" : "保存交易");
+  document.getElementById("deleteTradeBtn").hidden = !defaults.id;
   document.getElementById("tradeModalBackdrop").hidden = false;
 }
 
@@ -813,15 +823,65 @@ function closeTradeModal() {
 async function submitTrade(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  const id = data.id;
+  delete data.id;
   try {
-    applyDashboard(await api("/api/transactions", {
-      method: "POST",
+    applyDashboard(await api(id ? `/api/transactions/${id}` : "/api/transactions", {
+      method: id ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data)
     }));
     closeTradeModal();
     render();
-    showToast("交易已记录，持仓和盈亏已更新");
+    showToast(id ? "交易记录已修改" : "交易已记录，持仓和盈亏已更新");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function handleTradeAction(event) {
+  const button = event.target.closest("[data-trade-action]");
+  if (!button) return;
+  const id = Number(button.dataset.id);
+  const trade = state.transactions.find((item) => Number(item.id) === id);
+  if (!trade) return;
+  if (button.dataset.tradeAction === "edit") {
+    openTradeModal({
+      id: trade.id,
+      tradeDate: trade.tradeDate,
+      market: trade.market === "美股" ? "US" : "A",
+      side: trade.side,
+      name: trade.name,
+      ticker: trade.ticker,
+      qty: trade.qty,
+      price: trade.price,
+      fee: trade.fee || 0,
+      realizedPnl: trade.realizedPnl || 0
+    });
+    return;
+  }
+  const confirmed = window.confirm(`确定删除 ${trade.tradeDate} ${trade.name} 的交易记录吗？`);
+  if (!confirmed) return;
+  try {
+    applyDashboard(await api(`/api/transactions/${id}`, { method: "DELETE" }));
+    render();
+    showToast("交易记录已删除");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function deleteCurrentTrade() {
+  const form = document.getElementById("tradeForm");
+  const id = form.elements.id.value;
+  if (!id) return;
+  const confirmed = window.confirm("确定删除这笔交易记录吗？");
+  if (!confirmed) return;
+  try {
+    applyDashboard(await api(`/api/transactions/${id}`, { method: "DELETE" }));
+    closeTradeModal();
+    render();
+    showToast("交易记录已删除");
   } catch (error) {
     showToast(error.message);
   }
@@ -1005,6 +1065,7 @@ document.getElementById("deleteHoldingBtn").addEventListener("click", deleteCurr
 document.getElementById("holdingForm").addEventListener("submit", submitHolding);
 document.getElementById("closeTradeModal").addEventListener("click", closeTradeModal);
 document.getElementById("cancelTradeModal").addEventListener("click", closeTradeModal);
+document.getElementById("deleteTradeBtn").addEventListener("click", deleteCurrentTrade);
 document.getElementById("tradeForm").addEventListener("submit", submitTrade);
 document.getElementById("importBtn").addEventListener("click", openCsvPicker);
 document.getElementById("topImportBtn").addEventListener("click", openCsvPicker);
@@ -1012,6 +1073,7 @@ document.getElementById("importNav").addEventListener("click", openCsvPicker);
 document.getElementById("csvInput").addEventListener("change", (event) => importCsv(event.target.files[0]));
 document.getElementById("aRows").addEventListener("click", handleHoldingAction);
 document.getElementById("uRows").addEventListener("click", handleHoldingAction);
+document.getElementById("tradeRows").addEventListener("click", handleTradeAction);
 document.getElementById("trendRangeBtn").addEventListener("click", cycleTrendRange);
 document.getElementById("watchToggleBtn").addEventListener("click", () => {
   state.watchMode = state.watchMode === "all" ? "holdings" : "all";
