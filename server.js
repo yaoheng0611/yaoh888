@@ -359,6 +359,20 @@ function saveDayBasePrices(rows) {
   setSetting("dayBasePrices", JSON.stringify(prices));
 }
 
+function saveDayPnlSnapshotByMarket(dayPnlByMarket = {}) {
+  const rows = holdings();
+  const totals = new Map();
+  rows.forEach((item) => totals.set(item.market, (totals.get(item.market) || 0) + (Number(item.qty) * Number(item.price))));
+  const prices = {};
+  rows.forEach((item) => {
+    const desired = Number(dayPnlByMarket[item.market] || 0);
+    const total = totals.get(item.market) || 1;
+    const rate = desired / total;
+    prices[String(item.id)] = Number((Number(item.price) * (1 - rate)).toFixed(6));
+  });
+  setSetting("dayBasePrices", JSON.stringify(prices));
+}
+
 function transactions(limit = 100) {
   return db.prepare(`
     SELECT id, trade_date AS tradeDate, market, ticker, name, side, qty, price, fee, currency, realized_pnl AS realizedPnl, created_at AS createdAt
@@ -1332,6 +1346,7 @@ async function handleApi(req, res, url) {
         setCashAccount("美股", 0);
         cashAccounts();
       }
+      if (input.dayPnlByMarket) saveDayPnlSnapshotByMarket(input.dayPnlByMarket);
       sendJson(res, 200, dashboard());
       return true;
     }
