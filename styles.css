@@ -1104,6 +1104,17 @@ tfoot td {
   box-shadow: 0 0 0 3px rgba(64, 144, 255, 0.14);
 }
 
+.form-hint {
+  margin: 14px 0 0;
+  color: #8fa4c4;
+  font-size: 13px;
+}
+
+.modal-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .modal-actions {
   margin-top: 20px;
   display: flex;

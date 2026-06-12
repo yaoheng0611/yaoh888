@@ -36,6 +36,7 @@ const defaultDashboard = {
 const state = {
   cash: 0,
   cashAccounts: null,
+  cashAdjustments: [],
   holdings: [],
   watchlist: [],
   news: [],
@@ -219,6 +220,17 @@ async function localApi(path, options = {}) {
     accounts.totalCny = Number(accounts.ashare.amountCny || 0) + Number(accounts.us.amountCny || 0);
     data.cashAccounts = accounts;
     data.cash = accounts.totalCny;
+    data.cashAdjustments = data.cashAdjustments || [];
+    data.cashAdjustments.unshift({
+      id: Date.now(),
+      adjustmentDate: input.adjustmentDate || new Date().toISOString().slice(0, 10),
+      market: input.market === "US" ? "美股" : "A股",
+      currency: input.market === "US" ? "USD" : "CNY",
+      mode: input.mode === "set" ? "set" : "adjust",
+      amount,
+      balanceAfter: target.amount,
+      note: input.note || "补入资金"
+    });
     return saveLocalData(data);
   }
 
@@ -295,6 +307,7 @@ function parseLocalCsv(text) {
 function applyDashboard(data) {
   state.cash = Number(data.cash || 0);
   state.cashAccounts = data.cashAccounts || null;
+  state.cashAdjustments = data.cashAdjustments || [];
   state.holdings = (data.holdings || []).map((item) => ({
     ...item,
     qty: Number(item.qty),
@@ -834,12 +847,15 @@ function ensureCashControls() {
                 <option value="set">直接设置余额</option>
               </select>
             </label>
-            <label>金额<input name="amount" type="number" step="0.01" required /></label>
+            <label>金额<input name="amount" type="number" step="0.01" inputmode="decimal" placeholder="请输入补入金额" required /></label>
             <label>当前余额<input name="current" readonly /></label>
+            <label>日期<input name="adjustmentDate" type="date" required /></label>
+            <label>备注<input name="note" maxlength="120" placeholder="例如：追加投资本金" /></label>
           </div>
+          <p id="cashFormHint" class="form-hint">追加资金请输入正数；减少资金请输入负数。</p>
           <div class="modal-actions">
             <button type="button" id="cancelCashModal">取消</button>
-            <button type="submit">保存资金</button>
+            <button type="submit" id="saveCashBtn">保存资金</button>
           </div>
         </form>
       </div>
@@ -860,6 +876,7 @@ function openCashModal() {
   const form = document.getElementById("cashForm");
   form.reset();
   form.elements.mode.value = "adjust";
+  form.elements.adjustmentDate.value = new Date().toISOString().slice(0, 10);
   syncCashFormCurrent();
   document.getElementById("cashModalBackdrop").hidden = false;
 }
@@ -872,17 +889,32 @@ function closeCashModal() {
 async function submitCash(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  const amount = Number(data.amount);
+  if (data.amount === "" || !Number.isFinite(amount)) {
+    showToast("请输入有效的资金金额");
+    event.currentTarget.elements.amount.focus();
+    return;
+  }
+  const button = document.getElementById("saveCashBtn");
+  button.disabled = true;
+  button.textContent = "保存中...";
   try {
-    applyDashboard(await api("/api/cash", {
+    const result = await api("/api/cash", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data)
-    }));
+    });
+    applyDashboard(result);
+    const accounts = currentCashAccounts();
+    const balance = data.market === "US" ? money(accounts.us.amount, "USD") : money(accounts.ashare.amount, "CNY");
     closeCashModal();
     render();
-    showToast("可用资金已更新");
+    showToast(`可用资金已更新：${balance}`);
   } catch (error) {
-    showToast(error.message);
+    showToast(`保存失败：${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = "保存资金";
   }
 }
 

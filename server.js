@@ -148,6 +148,18 @@ db.exec(`
     unrealized_pnl REAL NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS cash_adjustments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    adjustment_date TEXT NOT NULL,
+    market TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    amount REAL NOT NULL,
+    balance_after REAL NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 const count = db.prepare("SELECT COUNT(*) AS count FROM holdings").get().count;
@@ -224,6 +236,45 @@ function changeCashAccount(market, delta) {
 function cashAccountForMarket(market) {
   const accounts = cashAccounts();
   return market === "美股" ? accounts.us.amount : accounts.ashare.amount;
+}
+
+function cashAdjustments(limit = 50) {
+  return db.prepare(`
+    SELECT id, adjustment_date AS adjustmentDate, market, currency, mode, amount,
+      balance_after AS balanceAfter, note, created_at AS createdAt
+    FROM cash_adjustments
+    ORDER BY adjustment_date DESC, id DESC
+    LIMIT ?
+  `).all(Number(limit));
+}
+
+function adjustCashAccount(input) {
+  const market = String(input.market || "").toUpperCase() === "US" || input.market === "美股" ? "美股" : "A股";
+  const currency = market === "美股" ? "USD" : "CNY";
+  const mode = input.mode === "set" ? "set" : "adjust";
+  const enteredAmount = Number(input.amount);
+  if (!Number.isFinite(enteredAmount)) throw new Error("资金金额必须是数字");
+  const current = cashAccountForMarket(market);
+  const balanceAfter = mode === "set" ? enteredAmount : current + enteredAmount;
+  const actualChange = balanceAfter - current;
+  const adjustmentDate = /^\d{4}-\d{2}-\d{2}$/.test(String(input.adjustmentDate || ""))
+    ? String(input.adjustmentDate)
+    : new Date().toISOString().slice(0, 10);
+  const note = String(input.note || (actualChange >= 0 ? "补入资金" : "减少资金")).trim().slice(0, 120);
+
+  db.exec("BEGIN");
+  try {
+    setCashAccount(market, balanceAfter);
+    db.prepare(`
+      INSERT INTO cash_adjustments (adjustment_date, market, currency, mode, amount, balance_after, note)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(adjustmentDate, market, currency, mode, Number(actualChange.toFixed(2)), Number(balanceAfter.toFixed(2)), note);
+    cashAccounts();
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 function holdings() {
@@ -603,6 +654,7 @@ function advisorPayload(question = "") {
     generatedAt: new Date().toISOString(),
     cash,
     cashAccounts: accounts,
+    cashAdjustments: cashAdjustments(),
     summaries: {
       ashare: groupSummary(enriched, "A股"),
       us: groupSummary(enriched, "美股"),
@@ -694,6 +746,7 @@ function dashboard() {
   return {
     cash,
     cashAccounts: accounts,
+    cashAdjustments: cashAdjustments(),
     holdings: enriched,
     summaries: {
       ashare: groupSummary(enriched, "A股"),
@@ -1261,12 +1314,7 @@ async function handleApi(req, res, url) {
 
     if (req.method === "POST" && url.pathname === "/api/cash") {
       const input = JSON.parse(await readBody(req));
-      const market = String(input.market || "").toUpperCase() === "US" || input.market === "美股" ? "美股" : "A股";
-      const amount = Number(input.amount);
-      if (!Number.isFinite(amount)) throw new Error("资金金额必须是数字");
-      if (input.mode === "set") setCashAccount(market, amount);
-      else changeCashAccount(market, amount);
-      cashAccounts();
+      adjustCashAccount(input);
       sendJson(res, 200, dashboard());
       return true;
     }
