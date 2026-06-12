@@ -539,6 +539,10 @@ button {
   background: var(--green);
 }
 
+.cyan {
+  background: #18c6c8;
+}
+
 .orange {
   background: var(--orange);
 }
@@ -702,6 +706,10 @@ tfoot td {
 }
 
 .a-holdings {
+  grid-column: 1 / 4;
+}
+
+.hk-holdings {
   grid-column: 1 / 4;
 }
 
@@ -1152,6 +1160,7 @@ tfoot td {
   }
 
   .a-holdings,
+  .hk-holdings,
   .us-holdings {
     grid-column: 1 / -1;
   }

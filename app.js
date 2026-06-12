@@ -1,4 +1,5 @@
-const FX = 7.22;
+const FX = 191671.17 / 28442.34;
+const HKD_FX = 50175 / 58042.44;
 const FILE_MODE = window.location.protocol === "file:";
 const STATIC_PAGES_MODE = FILE_MODE || window.location.hostname.endsWith("github.io");
 const STORAGE_KEY = "investment-dashboard-local-data";
@@ -7,7 +8,8 @@ const defaultDashboard = {
   cash: 71904,
   cashAccounts: {
     ashare: { market: "A股", currency: "CNY", amount: 71904, amountCny: 71904 },
-    us: { market: "美股", currency: "USD", amount: 0, amountCny: 0 },
+    hk: { market: "港股", currency: "HKD", amount: 0, amountCny: 0 },
+    us: { market: "美股", currency: "CNY", amount: 0, amountCny: 0 },
     totalCny: 71904
   },
   holdings: [
@@ -64,17 +66,17 @@ const state = {
 };
 
 function money(value, currency = "CNY") {
-  const symbol = currency === "USD" ? "$" : "¥";
+  const symbol = currency === "USD" ? "$" : currency === "HKD" ? "HK$" : "¥";
   return `${symbol} ${Number(value).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function compactMoney(value, currency = "CNY") {
-  const symbol = currency === "USD" ? "$" : "¥";
+  const symbol = currency === "USD" ? "$" : currency === "HKD" ? "HK$" : "¥";
   return `${symbol}${Number(value).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function tableMoney(value, currency = "CNY") {
-  const symbol = currency === "USD" ? "$" : "¥";
+  const symbol = currency === "USD" ? "$" : currency === "HKD" ? "HK$" : "¥";
   const number = Math.abs(Number(value));
   const sign = Number(value) < 0 ? "-" : "";
   if (number >= 10000) return `${sign}${symbol}${(number / 10000).toFixed(2)}万`;
@@ -84,7 +86,9 @@ function tableMoney(value, currency = "CNY") {
 function cnyValue(holding, useCost = false) {
   const price = useCost ? holding.cost : holding.price;
   const raw = holding.qty * price;
-  return holding.currency === "USD" ? raw * FX : raw;
+  if (holding.currency === "USD") return raw * FX;
+  if (holding.currency === "HKD") return raw * HKD_FX;
+  return raw;
 }
 
 function percent(value) {
@@ -106,7 +110,7 @@ function tradeSideText(side) {
 
 function totals() {
   const invested = state.holdings.reduce((sum, item) => sum + cnyValue(item, true), 0);
-  const market = state.holdings.reduce((sum, item) => sum + cnyValue(item), 0);
+  const market = Number(state.summaries?.total?.marketValue ?? state.holdings.reduce((sum, item) => sum + cnyValue(item), 0));
   const total = market + state.cash;
   const pnl = market - invested;
   const daily = state.holdings.reduce((sum, item) => sum + Number(item.dayPnl || 0), 0);
@@ -117,10 +121,12 @@ function totals() {
 function currentCashAccounts() {
   const accounts = state.cashAccounts || {};
   const ashare = accounts.ashare || { currency: "CNY", amount: state.cash, amountCny: state.cash };
-  const us = accounts.us || { currency: "USD", amount: 0, amountCny: 0 };
-  const totalCny = Number(accounts.totalCny ?? (Number(ashare.amountCny || 0) + Number(us.amountCny || 0)));
+  const hk = accounts.hk || { currency: "HKD", amount: 0, amountCny: 0 };
+  const us = accounts.us || { currency: "CNY", amount: 0, amountCny: 0 };
+  const totalCny = Number(accounts.totalCny ?? (Number(ashare.amountCny || 0) + Number(hk.amountCny || 0) + Number(us.amountCny || 0)));
   return {
     ashare: { ...ashare, amount: Number(ashare.amount || 0), amountCny: Number(ashare.amountCny || 0) },
+    hk: { ...hk, amount: Number(hk.amount || 0), amountCny: Number(hk.amountCny || 0) },
     us: { ...us, amount: Number(us.amount || 0), amountCny: Number(us.amountCny || 0) },
     totalCny
   };
@@ -146,7 +152,7 @@ function saveLocalData(data) {
 
 function normalizeLocalHolding(input) {
   const market = String(input.market || "").trim();
-  const currency = String(input.currency || (market === "美股" ? "USD" : "CNY")).trim().toUpperCase();
+  const currency = String(input.currency || (market === "美股" ? "USD" : market === "港股" ? "HKD" : "CNY")).trim().toUpperCase();
   const holding = {
     market,
     name: String(input.name || "").trim(),
@@ -156,7 +162,7 @@ function normalizeLocalHolding(input) {
     price: Number(input.price || input.cost),
     currency
   };
-  if (!["A股", "美股"].includes(holding.market)) throw new Error("市场必须是 A股 或 美股");
+  if (!["A股", "港股", "美股"].includes(holding.market)) throw new Error("市场必须是 A股、港股 或 美股");
   if (!holding.name) throw new Error("名称不能为空");
   if (!holding.ticker) throw new Error("代码不能为空");
   if (!Number.isFinite(holding.qty) || holding.qty <= 0) throw new Error("持仓数量必须大于 0");
@@ -190,15 +196,17 @@ async function localApi(path, options = {}) {
     if (input.cashAccounts) {
       data.cashAccounts = {
         ashare: { market: "A股", currency: "CNY", amount: Number(input.cashAccounts.ashare || 0), amountCny: Number(input.cashAccounts.ashare || 0) },
-        us: { market: "美股", currency: "USD", amount: Number(input.cashAccounts.us || 0), amountCny: Number(input.cashAccounts.us || 0) * FX }
+        hk: { market: "港股", currency: "HKD", amount: Number(input.cashAccounts.hk || 0), amountCny: Number(input.cashAccounts.hk || 0) * HKD_FX },
+        us: { market: "美股", currency: "CNY", amount: Number(input.cashAccounts.us || 0), amountCny: Number(input.cashAccounts.us || 0) }
       };
-      data.cashAccounts.totalCny = data.cashAccounts.ashare.amountCny + data.cashAccounts.us.amountCny;
+      data.cashAccounts.totalCny = data.cashAccounts.ashare.amountCny + data.cashAccounts.hk.amountCny + data.cashAccounts.us.amountCny;
       data.cash = data.cashAccounts.totalCny;
     } else if (input.cash !== undefined) {
       data.cash = Number(input.cash);
       data.cashAccounts = {
         ashare: { market: "A股", currency: "CNY", amount: data.cash, amountCny: data.cash },
-        us: { market: "美股", currency: "USD", amount: 0, amountCny: 0 },
+        hk: { market: "港股", currency: "HKD", amount: 0, amountCny: 0 },
+        us: { market: "美股", currency: "CNY", amount: 0, amountCny: 0 },
         totalCny: data.cash
       };
     }
@@ -209,23 +217,24 @@ async function localApi(path, options = {}) {
     const input = JSON.parse(options.body || "{}");
     const accounts = data.cashAccounts || {
       ashare: { market: "A股", currency: "CNY", amount: Number(data.cash || 0), amountCny: Number(data.cash || 0) },
-      us: { market: "美股", currency: "USD", amount: 0, amountCny: 0 },
+      hk: { market: "港股", currency: "HKD", amount: 0, amountCny: 0 },
+      us: { market: "美股", currency: "CNY", amount: 0, amountCny: 0 },
       totalCny: Number(data.cash || 0)
     };
-    const target = input.market === "US" ? accounts.us : accounts.ashare;
+    const target = input.market === "US" ? accounts.us : input.market === "HK" ? accounts.hk : accounts.ashare;
     const amount = Number(input.amount);
     if (!Number.isFinite(amount)) throw new Error("资金金额必须是数字");
     target.amount = input.mode === "set" ? amount : Number(target.amount || 0) + amount;
-    target.amountCny = target.currency === "USD" ? target.amount * FX : target.amount;
-    accounts.totalCny = Number(accounts.ashare.amountCny || 0) + Number(accounts.us.amountCny || 0);
+    target.amountCny = target.currency === "HKD" ? target.amount * HKD_FX : target.currency === "USD" ? target.amount * FX : target.amount;
+    accounts.totalCny = Number(accounts.ashare.amountCny || 0) + Number(accounts.hk.amountCny || 0) + Number(accounts.us.amountCny || 0);
     data.cashAccounts = accounts;
     data.cash = accounts.totalCny;
     data.cashAdjustments = data.cashAdjustments || [];
     data.cashAdjustments.unshift({
       id: Date.now(),
       adjustmentDate: input.adjustmentDate || new Date().toISOString().slice(0, 10),
-      market: input.market === "US" ? "美股" : "A股",
-      currency: input.market === "US" ? "USD" : "CNY",
+      market: input.market === "US" ? "美股" : input.market === "HK" ? "港股" : "A股",
+      currency: input.market === "US" ? "CNY" : input.market === "HK" ? "HKD" : "CNY",
       mode: input.mode === "set" ? "set" : "adjust",
       amount,
       balanceAfter: target.amount,
@@ -343,7 +352,8 @@ function updateMetrics() {
   const t = totals();
   const byMarket = (market) => {
     const items = state.holdings.filter((h) => h.market === market);
-    const marketValue = items.reduce((sum, h) => sum + Number(h.marketValue ?? cnyValue(h)), 0);
+    const summaryKey = market === "A股" ? "ashare" : market === "港股" ? "hk" : "us";
+    const marketValue = Number(state.summaries?.[summaryKey]?.marketValue ?? items.reduce((sum, h) => sum + Number(h.marketValue ?? cnyValue(h)), 0));
     const invested = items.reduce((sum, h) => sum + cnyValue(h, true), 0);
     const pnl = items.reduce((sum, h) => sum + Number(h.totalPnl ?? 0), 0);
     const dayPnl = items.reduce((sum, h) => sum + Number(h.dayPnl ?? 0), 0);
@@ -358,14 +368,17 @@ function updateMetrics() {
     };
   };
   const ashare = byMarket("A股");
+  const hk = byMarket("港股");
   const us = byMarket("美股");
   const dailyRate = state.summaries?.total?.dayPnlRate ?? ((t.daily / Math.max(t.dayBase, 1)) * 100);
   const totalRate = (t.pnl / Math.max(t.invested, 1)) * 100;
   const accounts = currentCashAccounts();
   const cashRate = (accounts.totalCny / Math.max(t.total, 1)) * 100;
   document.getElementById("assetAshareRate").parentElement.firstChild.textContent = "A股现金 ";
+  document.getElementById("assetHkRate").parentElement.firstChild.textContent = "港股现金 ";
   document.getElementById("assetUsRate").parentElement.firstChild.textContent = "美股现金 ";
   document.getElementById("cashAccountValue").parentElement.firstChild.textContent = "A股可用 ";
+  document.getElementById("availableHkRate").parentElement.firstChild.textContent = "港股可用 ";
   document.getElementById("availableAccountRate").parentElement.firstChild.textContent = "美股可用 ";
 
   setText("totalAssets", money(t.total));
@@ -380,37 +393,48 @@ function updateMetrics() {
   setText("availableCash", money(accounts.totalCny));
   setText("availableRate", "100.00%");
   setText("assetAshare", money(ashare.marketValue));
+  setText("assetHk", money(hk.marketValue));
   setText("assetUs", money(us.marketValue));
   setText("todayAshare", `${ashare.dayPnl >= 0 ? "+" : ""}${money(ashare.dayPnl)}`);
+  setText("todayHk", `${hk.dayPnl >= 0 ? "+" : ""}${money(hk.dayPnl)}`);
   setText("todayUs", `${us.dayPnl >= 0 ? "+" : ""}${money(us.dayPnl)}`);
   setText("pnlAshare", `${ashare.pnl >= 0 ? "+" : ""}${money(ashare.pnl)}`);
+  setText("pnlHk", `${hk.pnl >= 0 ? "+" : ""}${money(hk.pnl)}`);
   setText("pnlUs", `${us.pnl >= 0 ? "+" : ""}${money(us.pnl)}`);
   setText("assetAshareRate", money(accounts.ashare.amount, "CNY"));
-  setText("assetUsRate", money(accounts.us.amount, "USD"));
+  setText("assetHkRate", money(accounts.hk.amount, "HKD"));
+  setText("assetUsRate", money(accounts.us.amount, "CNY"));
   setText("cashAccountValue", money(accounts.ashare.amount, "CNY"));
-  setText("availableAccountRate", money(accounts.us.amount, "USD"));
+  setText("availableHkRate", money(accounts.hk.amount, "HKD"));
+  setText("availableAccountRate", money(accounts.us.amount, "CNY"));
   setText("donutTotal", `¥ ${Math.round(t.total).toLocaleString("zh-CN")}`);
 
   document.getElementById("todayPnl").className = classFor(t.daily);
   document.getElementById("totalPnl").className = classFor(t.pnl);
   document.getElementById("todayAshare").className = classFor(ashare.dayPnl);
+  document.getElementById("todayHk").className = classFor(hk.dayPnl);
   document.getElementById("todayUs").className = classFor(us.dayPnl);
   document.getElementById("pnlAshare").className = classFor(ashare.pnl);
+  document.getElementById("pnlHk").className = classFor(hk.pnl);
   document.getElementById("pnlUs").className = classFor(us.pnl);
 
   const aValue = ashare.marketValue;
+  const hValue = hk.marketValue;
   const uValue = us.marketValue;
   setText("asharePct", `${((aValue / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
+  setText("hkPct", `${((hValue / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
   setText("usPct", `${((uValue / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
   setText("cashPct", `${((accounts.totalCny / Math.max(t.total, 1)) * 100).toFixed(1)}%`);
   setText("ashareValue", money(aValue));
+  setText("hkValue", money(hValue));
   setText("usValue", money(uValue));
   setText("cashLegend", money(accounts.totalCny));
 
   const aEnd = (aValue / Math.max(t.total, 1)) * 100;
-  const uEnd = aEnd + (uValue / Math.max(t.total, 1)) * 100;
+  const hEnd = aEnd + (hValue / Math.max(t.total, 1)) * 100;
+  const uEnd = hEnd + (uValue / Math.max(t.total, 1)) * 100;
   document.getElementById("donut").style.background =
-    `conic-gradient(var(--blue) 0 ${aEnd}%, var(--green) ${aEnd}% ${uEnd}%, var(--orange) ${uEnd}% 100%)`;
+    `conic-gradient(var(--blue) 0 ${aEnd}%, #18c6c8 ${aEnd}% ${hEnd}%, var(--green) ${hEnd}% ${uEnd}%, var(--orange) ${uEnd}% 100%)`;
 }
 
 function renderQuoteStatus() {
@@ -471,6 +495,7 @@ function renderHoldings() {
     setText(countId, `（${group.length}只）`);
   };
   renderGroup("A股", "aRows", "aFoot", "aCount");
+  renderGroup("港股", "hRows", "hFoot", "hCount");
   renderGroup("美股", "uRows", "uFoot", "uCount");
 }
 
@@ -838,7 +863,8 @@ function ensureCashControls() {
             <label>账户
               <select name="market">
                 <option value="A">A股现金（CNY）</option>
-                <option value="US">美股现金（USD）</option>
+                <option value="HK">港股现金（HKD）</option>
+                <option value="US">美股现金（CNH）</option>
               </select>
             </label>
             <label>方式
@@ -868,7 +894,8 @@ function syncCashFormCurrent() {
   if (!form) return;
   const accounts = currentCashAccounts();
   const isUs = form.elements.market.value === "US";
-  form.elements.current.value = isUs ? money(accounts.us.amount, "USD") : money(accounts.ashare.amount, "CNY");
+  const isHk = form.elements.market.value === "HK";
+  form.elements.current.value = isUs ? money(accounts.us.amount, "CNY") : isHk ? money(accounts.hk.amount, "HKD") : money(accounts.ashare.amount, "CNY");
 }
 
 function openCashModal() {
@@ -906,7 +933,7 @@ async function submitCash(event) {
     });
     applyDashboard(result);
     const accounts = currentCashAccounts();
-    const balance = data.market === "US" ? money(accounts.us.amount, "USD") : money(accounts.ashare.amount, "CNY");
+    const balance = data.market === "US" ? money(accounts.us.amount, "CNY") : data.market === "HK" ? money(accounts.hk.amount, "HKD") : money(accounts.ashare.amount, "CNY");
     closeCashModal();
     render();
     showToast(`可用资金已更新：${balance}`);
@@ -1015,7 +1042,7 @@ async function handleTradeAction(event) {
     openTradeModal({
       id: trade.id,
       tradeDate: trade.tradeDate,
-      market: trade.market === "美股" ? "US" : "A",
+      market: trade.market === "美股" ? "US" : trade.market === "港股" ? "HK" : "A",
       side: trade.side,
       name: trade.name,
       ticker: trade.ticker,
@@ -1066,7 +1093,7 @@ async function handleHoldingAction(event) {
   }
   if (button.dataset.action === "trade") {
     openTradeModal({
-      market: holding.market === "美股" ? "US" : "A",
+      market: holding.market === "美股" ? "US" : holding.market === "港股" ? "HK" : "A",
       name: holding.name,
       ticker: holding.ticker,
       qty: holding.qty,
@@ -1244,6 +1271,7 @@ document.getElementById("topImportBtn").addEventListener("click", openCsvPicker)
 document.getElementById("importNav").addEventListener("click", openCsvPicker);
 document.getElementById("csvInput").addEventListener("change", (event) => importCsv(event.target.files[0]));
 document.getElementById("aRows").addEventListener("click", handleHoldingAction);
+document.getElementById("hRows").addEventListener("click", handleHoldingAction);
 document.getElementById("uRows").addEventListener("click", handleHoldingAction);
 document.getElementById("tradeRows").addEventListener("click", handleTradeAction);
 document.getElementById("trendRangeBtn").addEventListener("click", cycleTrendRange);

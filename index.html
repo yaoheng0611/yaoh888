@@ -17,6 +17,7 @@
         <nav class="nav-list">
           <button class="nav-item active" data-scroll="overview"><span>⌂</span> 首页总览</button>
           <button class="nav-item" data-scroll="aHoldings"><span>〽</span> A股持仓</button>
+          <button class="nav-item" data-scroll="hkHoldings"><span>▦</span> 港股持仓</button>
           <button class="nav-item" data-scroll="usHoldings"><span>▥</span> 美股持仓</button>
           <button class="nav-item" data-scroll="watchlistPanel"><span>♡</span> 自选观察</button>
           <button class="nav-item" data-scroll="allocationPanel"><span>▤</span> 资产分析</button>
@@ -66,6 +67,7 @@
               <small>较昨日 <b class="gain" id="dailyRate">+0.00%</b> <b class="gain" id="dailyPnl">+¥ 0.00</b></small>
               <div class="metric-breakdown">
                 <span>A股 <b id="assetAshare">¥ 0.00</b></span>
+                <span>港股 <b id="assetHk">¥ 0.00</b></span>
                 <span>美股 <b id="assetUs">¥ 0.00</b></span>
               </div>
             </div>
@@ -78,6 +80,7 @@
               <small><b class="gain" id="todayRate">+0.00%</b></small>
               <div class="metric-breakdown">
                 <span>A股 <b id="todayAshare">+¥ 0.00</b></span>
+                <span>港股 <b id="todayHk">+¥ 0.00</b></span>
                 <span>美股 <b id="todayUs">+¥ 0.00</b></span>
               </div>
             </div>
@@ -90,6 +93,7 @@
               <small><b class="gain" id="totalRate">+0.00%</b></small>
               <div class="metric-breakdown">
                 <span>A股 <b id="pnlAshare">+¥ 0.00</b></span>
+                <span>港股 <b id="pnlHk">+¥ 0.00</b></span>
                 <span>美股 <b id="pnlUs">+¥ 0.00</b></span>
               </div>
             </div>
@@ -102,6 +106,7 @@
               <small>现金 <b id="cashValue">¥ 0.00</b></small>
               <div class="metric-breakdown">
                 <span>A股占比 <b id="assetAshareRate">0.00%</b></span>
+                <span>港股现金 <b id="assetHkRate">HK$ 0.00</b></span>
                 <span>美股占比 <b id="assetUsRate">0.00%</b></span>
               </div>
             </div>
@@ -114,6 +119,7 @@
               <small>可用 <b id="availableRate">0.00%</b></small>
               <div class="metric-breakdown">
                 <span>账户现金 <b id="cashAccountValue">¥ 0.00</b></span>
+                <span>港股可用 <b id="availableHkRate">HK$ 0.00</b></span>
                 <span>预估可用 <b id="availableAccountRate">0.00%</b></span>
               </div>
             </div>
@@ -142,6 +148,7 @@
               </div>
               <div class="legend">
                 <div><span class="dot blue"></span><b>A股</b><strong id="asharePct">0%</strong><small id="ashareValue">¥ 0.00</small></div>
+                <div><span class="dot cyan"></span><b>港股</b><strong id="hkPct">0%</strong><small id="hkValue">¥ 0.00</small></div>
                 <div><span class="dot green"></span><b>美股</b><strong id="usPct">0%</strong><small id="usValue">¥ 0.00</small></div>
                 <div><span class="dot orange"></span><b>现金</b><strong id="cashPct">0%</strong><small id="cashLegend">¥ 0.00</small></div>
               </div>
@@ -180,6 +187,20 @@
               </thead>
               <tbody id="aRows"></tbody>
               <tfoot id="aFoot"></tfoot>
+            </table>
+          </article>
+
+          <article id="hkHoldings" class="panel holdings-panel hk-holdings">
+            <div class="panel-title">
+              <h3>港股持仓 <span id="hCount"></span></h3>
+              <button class="section-jump" data-scroll="hkHoldings">全部 ›</button>
+            </div>
+            <table>
+              <thead>
+                <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
+              </thead>
+              <tbody id="hRows"></tbody>
+              <tfoot id="hFoot"></tfoot>
             </table>
           </article>
 
@@ -310,12 +331,14 @@
           <label>市场
             <select name="market">
               <option value="A股">A股</option>
+              <option value="港股">港股</option>
               <option value="美股">美股</option>
             </select>
           </label>
           <label>币种
             <select name="currency">
               <option value="CNY">CNY</option>
+              <option value="HKD">HKD</option>
               <option value="USD">USD</option>
             </select>
           </label>
@@ -345,6 +368,7 @@
           <label>市场
             <select name="market">
               <option value="A">A股</option>
+              <option value="HK">港股</option>
               <option value="US">美股</option>
             </select>
           </label>
