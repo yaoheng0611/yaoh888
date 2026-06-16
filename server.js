@@ -1253,6 +1253,47 @@ async function fetchEastmoneyQuotes(items) {
   }
 }
 
+function hkTickerCode(ticker) {
+  const match = String(ticker).trim().match(/\d{4,5}/);
+  return match ? match[0].padStart(5, "0") : String(ticker).trim();
+}
+
+async function fetchEastmoneyHkQuotes(items) {
+  if (items.length === 0) return new Map();
+  const secids = items.map((item) => `116.${hkTickerCode(item.ticker)}`).join(",");
+  const fields = "f12,f14,f2,f18";
+  const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=${fields}&secids=${encodeURIComponent(secids)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Referer: "https://quote.eastmoney.com/"
+      }
+    });
+    if (!response.ok) throw new Error(`Eastmoney HK HTTP ${response.status}`);
+    const payload = await response.json();
+    const rows = payload?.data?.diff || [];
+    const quotes = new Map();
+    rows.forEach((row) => {
+      const code = String(row.f12 || "").padStart(5, "0");
+      const price = Number(row.f2);
+      const previousClose = Number(row.f18);
+      if (code && Number.isFinite(price) && price > 0) {
+        quotes.set(code, {
+          price: Number(price.toFixed(3)),
+          previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(3)) : Number(price.toFixed(3))
+        });
+      }
+    });
+    return quotes;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function refreshQuotes() {
   const providerConfig = quoteProviderConfig();
   const seed = Number(getSetting("seed", "4")) + 1;
@@ -1267,6 +1308,7 @@ async function refreshQuotes() {
   let simulated = 0;
   let failed = 0;
   let eastmoneyQuotes = new Map();
+  let eastmoneyHkQuotes = new Map();
 
   try {
     eastmoneyQuotes = await fetchEastmoneyQuotes(currentHoldings.filter((item) => item.currency === "CNY" && /^\d{6}$/.test(item.ticker)));
@@ -1274,16 +1316,21 @@ async function refreshQuotes() {
     failed += currentHoldings.filter((item) => item.currency === "CNY").length;
   }
 
+  try {
+    eastmoneyHkQuotes = await fetchEastmoneyHkQuotes(currentHoldings.filter((item) => item.currency === "HKD"));
+  } catch (error) {
+    failed += currentHoldings.filter((item) => item.currency === "HKD").length;
+  }
+
   for (const [idx, item] of currentHoldings.entries()) {
     let nextPrice = null;
     let previousClose = null;
-    if (providerConfig.provider === "finnhub" && (item.currency === "USD" || item.currency === "HKD")) {
+    if (providerConfig.provider === "finnhub" && item.currency === "USD") {
       try {
         const quote = await fetchFinnhubQuote(item.ticker, providerConfig.finnhubKey);
         nextPrice = quote.price;
         previousClose = quote.previousClose;
-        if (item.currency === "HKD") hkUpdated += 1;
-        else usUpdated += 1;
+        usUpdated += 1;
       } catch (error) {
         failed += 1;
       }
@@ -1294,6 +1341,13 @@ async function refreshQuotes() {
       nextPrice = quote.price;
       previousClose = quote.previousClose;
       cnUpdated += 1;
+    }
+
+    if (item.currency === "HKD" && eastmoneyHkQuotes.has(hkTickerCode(item.ticker))) {
+      const quote = eastmoneyHkQuotes.get(hkTickerCode(item.ticker));
+      nextPrice = quote.price;
+      previousClose = quote.previousClose;
+      hkUpdated += 1;
     }
 
     if (nextPrice === null) {
@@ -1311,7 +1365,7 @@ async function refreshQuotes() {
   setSetting(
     "quoteStatusMessage",
     providerConfig.provider === "finnhub"
-      ? `Finnhub US ${usUpdated}; Finnhub HK ${hkUpdated}; Eastmoney A-share ${cnUpdated}; simulated ${simulated}; failed ${failed}`
+      ? `Finnhub US ${usUpdated}; Eastmoney HK ${hkUpdated}; Eastmoney A-share ${cnUpdated}; simulated ${simulated}; failed ${failed}`
       : `Eastmoney A-share ${cnUpdated}; simulated ${simulated}; failed ${failed}`
   );
   recordDailySnapshot();
