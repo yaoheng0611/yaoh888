@@ -4,7 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>YaoH的军情室</title>
-    <link rel="stylesheet" href="styles.css" />
+    <script>
+      (() => {
+        const saved = localStorage.getItem("yaohTheme");
+        const preferred = window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = saved || preferred;
+      })();
+    </script>
+    <link rel="stylesheet" href="styles.css?v=clear-glass-terminal-20260618" />
   </head>
   <body>
     <div class="app-shell">
@@ -53,6 +60,7 @@
               <option value="60" selected>60秒</option>
               <option value="300">5分钟</option>
             </select>
+            <button id="themeToggle" class="theme-toggle" type="button" title="切换深浅主题">深色</button>
             <span class="clock">◷ <span id="topTime">--</span></span>
             <button id="refreshTop" class="icon-button" title="刷新行情">⟳</button>
           </div>
@@ -168,12 +176,14 @@
               <h3>自选观察</h3>
               <button id="watchToggleBtn">全部 ›</button>
             </div>
-            <table>
-              <thead>
-                <tr><th>名称</th><th>最新价</th><th>涨跌幅</th><th>目标位</th><th>操作</th></tr>
-              </thead>
-              <tbody id="watchRows"></tbody>
-            </table>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>名称</th><th>最新价</th><th>涨跌幅</th><th>目标位</th><th>操作</th></tr>
+                </thead>
+                <tbody id="watchRows"></tbody>
+              </table>
+            </div>
           </article>
 
           <article id="aHoldings" class="panel holdings-panel a-holdings">
@@ -181,13 +191,15 @@
               <h3>A股持仓 <span id="aCount"></span></h3>
               <button class="section-jump" data-scroll="aHoldings">全部 ›</button>
             </div>
-            <table>
-              <thead>
-                <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
-              </thead>
-              <tbody id="aRows"></tbody>
-              <tfoot id="aFoot"></tfoot>
-            </table>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
+                </thead>
+                <tbody id="aRows"></tbody>
+                <tfoot id="aFoot"></tfoot>
+              </table>
+            </div>
           </article>
 
           <article id="hkHoldings" class="panel holdings-panel hk-holdings">
@@ -195,13 +207,15 @@
               <h3>港股持仓 <span id="hCount"></span></h3>
               <button class="section-jump" data-scroll="hkHoldings">全部 ›</button>
             </div>
-            <table>
-              <thead>
-                <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
-              </thead>
-              <tbody id="hRows"></tbody>
-              <tfoot id="hFoot"></tfoot>
-            </table>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
+                </thead>
+                <tbody id="hRows"></tbody>
+                <tfoot id="hFoot"></tfoot>
+              </table>
+            </div>
           </article>
 
           <article id="usHoldings" class="panel holdings-panel us-holdings">
@@ -209,13 +223,15 @@
               <h3>美股持仓 <span id="uCount"></span></h3>
               <button class="section-jump" data-scroll="usHoldings">全部 ›</button>
             </div>
-            <table>
-              <thead>
-                <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
-              </thead>
-              <tbody id="uRows"></tbody>
-              <tfoot id="uFoot"></tfoot>
-            </table>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
+                </thead>
+                <tbody id="uRows"></tbody>
+                <tfoot id="uFoot"></tfoot>
+              </table>
+            </div>
           </article>
 
           <article class="panel news-panel">

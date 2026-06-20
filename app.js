@@ -553,14 +553,34 @@ function renderRisks() {
   `).join("");
 }
 
+function chartTheme() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  return dark
+    ? {
+        grid: "rgba(214, 255, 244, 0.14)",
+        label: "rgba(213, 229, 222, 0.72)",
+        line: "#5e9bff",
+        fill: "rgba(94, 155, 255, 0.24)",
+        fillEnd: "rgba(94, 155, 255, 0)"
+      }
+    : {
+        grid: "rgba(42, 69, 83, 0.12)",
+        label: "rgba(64, 82, 73, 0.72)",
+        line: "#1a73e8",
+        fill: "rgba(26, 115, 232, 0.18)",
+        fillEnd: "rgba(26, 115, 232, 0)"
+      };
+}
+
 function drawLineChart(canvasId, series, lines, formatter) {
   const canvas = document.getElementById(canvasId);
   const ctx = canvas.getContext("2d");
+  const theme = chartTheme();
   const width = canvas.width;
   const height = canvas.height;
   const pad = { top: 18, right: 18, bottom: 28, left: 54 };
   ctx.clearRect(0, 0, width, height);
-  ctx.font = "12px Microsoft YaHei, sans-serif";
+  ctx.font = "600 12px Microsoft YaHei, PingFang SC, sans-serif";
   ctx.lineWidth = 1;
 
   const allValues = series.flatMap((s) => s.values);
@@ -570,18 +590,18 @@ function drawLineChart(canvasId, series, lines, formatter) {
 
   for (let i = 0; i <= 5; i += 1) {
     const y = pad.top + ((height - pad.top - pad.bottom) / 5) * i;
-    ctx.strokeStyle = "rgba(138, 162, 204, 0.14)";
+    ctx.strokeStyle = theme.grid;
     ctx.beginPath();
     ctx.moveTo(pad.left, y);
     ctx.lineTo(width - pad.right, y);
     ctx.stroke();
     const value = max - (range / 5) * i;
-    ctx.fillStyle = "#9da9bf";
+    ctx.fillStyle = theme.label;
     ctx.fillText(formatter(value), 8, y + 4);
   }
 
   series.forEach((item) => {
-    ctx.strokeStyle = item.color;
+    ctx.strokeStyle = item.color || theme.line;
     ctx.lineWidth = item.width || 2;
     ctx.beginPath();
     item.values.forEach((value, idx) => {
@@ -598,8 +618,8 @@ function drawLineChart(canvasId, series, lines, formatter) {
       ctx.lineTo(pad.left, height - pad.bottom);
       ctx.closePath();
       const gradient = ctx.createLinearGradient(0, pad.top, 0, height - pad.bottom);
-      gradient.addColorStop(0, item.fill);
-      gradient.addColorStop(1, "rgba(52, 120, 255, 0)");
+      gradient.addColorStop(0, item.fill || theme.fill);
+      gradient.addColorStop(1, item.fillEnd || theme.fillEnd);
       ctx.fillStyle = gradient;
       ctx.fill();
     }
@@ -608,7 +628,7 @@ function drawLineChart(canvasId, series, lines, formatter) {
   if (lines?.length) {
     lines.forEach((label, idx) => {
       const x = pad.left + ((width - pad.left - pad.right) / Math.max(lines.length - 1, 1)) * idx;
-      ctx.fillStyle = "#9da9bf";
+      ctx.fillStyle = theme.label;
       ctx.fillText(label, x - 16, height - 8);
     });
   }
@@ -663,6 +683,7 @@ function renderPnlCalendar() {
 }
 
 function renderCharts() {
+  const theme = chartTheme();
   const trendLabels = state.trendRange === 7
     ? ["05-09", "05-10", "05-11", "05-12", "05-13", "05-14", "05-15"]
     : state.trendRange === 90
@@ -670,8 +691,9 @@ function renderCharts() {
       : ["04-20", "04-27", "05-04", "05-11", "05-18"];
   drawLineChart("assetChart", [{
     values: makeAssetSeries(),
-    color: "#3478ff",
-    fill: "rgba(52, 120, 255, 0.28)",
+    color: theme.line,
+    fill: theme.fill,
+    fillEnd: theme.fillEnd,
     width: 3
   }], trendLabels, (v) => `${Math.round(v / 1000)},000`);
 
@@ -685,11 +707,11 @@ function renderCharts() {
   } else if (!pnl.length) {
     const ctx = chart.getContext("2d");
     ctx.clearRect(0, 0, chart.width, chart.height);
-    ctx.fillStyle = "#9da9bf";
-    ctx.font = "14px Microsoft YaHei, sans-serif";
+    ctx.fillStyle = theme.label;
+    ctx.font = "600 14px Microsoft YaHei, PingFang SC, sans-serif";
     ctx.fillText("暂无真实盈亏记录，刷新行情或记录交易后生成", 24, 42);
   } else {
-    drawLineChart("returnChart", [{ values: pnl.map((row) => row.value), color: "#3478ff", width: 3 }], pnl.map((row) => row.label), (v) => tableMoney(v));
+    drawLineChart("returnChart", [{ values: pnl.map((row) => row.value), color: theme.line, width: 3 }], pnl.map((row) => row.label), (v) => tableMoney(v));
   }
 }
 
@@ -1243,8 +1265,28 @@ function jumpToPanel(id) {
   window.setTimeout(() => target.classList.add("highlight-panel"), 30);
 }
 
+function applyTheme(theme) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = nextTheme;
+  localStorage.setItem("yaohTheme", nextTheme);
+  const toggle = document.getElementById("themeToggle");
+  if (toggle) {
+    toggle.textContent = nextTheme === "dark" ? "浅色" : "深色";
+    toggle.setAttribute("aria-label", `切换到${nextTheme === "dark" ? "浅色" : "深色"}主题`);
+  }
+  if (document.getElementById("assetChart")) renderCharts();
+}
+
+function toggleTheme() {
+  const current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  applyTheme(current === "dark" ? "light" : "dark");
+}
+
+applyTheme(document.documentElement.dataset.theme);
+
 document.getElementById("refreshTop").addEventListener("click", refreshData);
 document.getElementById("refreshSide").addEventListener("click", refreshData);
+document.getElementById("themeToggle")?.addEventListener("click", toggleTheme);
 document.getElementById("autoRefreshToggle").addEventListener("change", (event) => setAutoRefresh(event.target.checked));
 document.getElementById("refreshIntervalSelect").addEventListener("change", (event) => setAutoRefreshInterval(event.target.value));
 ensureCashControls();
