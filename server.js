@@ -1509,7 +1509,14 @@ function serveStatic(req, res, url) {
       res.end("Not found");
       return;
     }
-    res.writeHead(200, { "Content-Type": contentTypes[path.extname(filePath)] || "text/plain; charset=utf-8" });
+    const ext = path.extname(filePath);
+    const headers = {
+      "Content-Type": contentTypes[ext] || "text/plain; charset=utf-8",
+      "Cache-Control": ext === ".html" || ext === ".css" || ext === ".js"
+        ? "no-store, max-age=0"
+        : "public, max-age=3600"
+    };
+    res.writeHead(200, headers);
     res.end(data);
   });
 }
