@@ -1301,6 +1301,7 @@ async function refreshQuotes() {
 
   const update = db.prepare("UPDATE holdings SET price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
   const currentHoldings = holdings();
+  const previousPrices = getPreviousPrices();
   const dayBaseRows = [];
   let usUpdated = 0;
   let hkUpdated = 0;
@@ -1353,7 +1354,7 @@ async function refreshQuotes() {
 
     if (nextPrice === null) {
       nextPrice = item.price;
-      previousClose = item.price;
+      previousClose = previousPrices.get(String(item.id)) ?? item.price;
       retained += 1;
     }
     update.run(nextPrice, item.id);
