@@ -1306,6 +1306,7 @@ async function refreshQuotes() {
   let hkUpdated = 0;
   let cnUpdated = 0;
   let simulated = 0;
+  let retained = 0;
   let failed = 0;
   let eastmoneyQuotes = new Map();
   let eastmoneyHkQuotes = new Map();
@@ -1351,9 +1352,9 @@ async function refreshQuotes() {
     }
 
     if (nextPrice === null) {
-      nextPrice = item.currency === "HKD" ? item.price : simulateNextPrice(item, seed, idx);
+      nextPrice = item.price;
       previousClose = item.price;
-      if (item.currency !== "HKD") simulated += 1;
+      retained += 1;
     }
     update.run(nextPrice, item.id);
     dayBaseRows.push({ id: item.id, price: nextPrice, previousClose });
@@ -1365,8 +1366,8 @@ async function refreshQuotes() {
   setSetting(
     "quoteStatusMessage",
     providerConfig.provider === "finnhub"
-      ? `Finnhub US ${usUpdated}; Eastmoney HK ${hkUpdated}; Eastmoney A-share ${cnUpdated}; simulated ${simulated}; failed ${failed}`
-      : `Eastmoney A-share ${cnUpdated}; simulated ${simulated}; failed ${failed}`
+      ? `Finnhub US ${usUpdated}; Eastmoney HK ${hkUpdated}; Eastmoney A-share ${cnUpdated}; retained ${retained}; simulated ${simulated}; failed ${failed}`
+      : `Eastmoney A-share ${cnUpdated}; retained ${retained}; simulated ${simulated}; failed ${failed}`
   );
   recordDailySnapshot();
 }
