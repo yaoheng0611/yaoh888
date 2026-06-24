@@ -552,6 +552,38 @@ canvas {
   height: 220px;
 }
 
+.chart-detail {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.chart-detail div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(214, 255, 244, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.chart-detail span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chart-detail strong {
+  display: block;
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 760;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -944,7 +976,7 @@ tfoot td {
 }
 
 .risk-panel li::before {
-  content: "⚠";
+  content: "鈿?;
   margin-right: 8px;
   color: var(--orange);
 }
@@ -3646,6 +3678,28 @@ html[data-theme="light"] .donut::after {
   .trend-panel canvas,
   .return-panel canvas {
     height: 190px !important;
+  }
+
+  .chart-detail {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .chart-detail div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 38px;
+  }
+
+  .chart-detail span {
+    margin-bottom: 0;
+    flex: 0 0 auto;
+  }
+
+  .chart-detail strong {
+    text-align: right;
   }
 
   .holdings-panel,

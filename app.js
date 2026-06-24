@@ -62,7 +62,9 @@ const state = {
     interval: 60,
     timer: null,
     inFlight: false
-  }
+  },
+  assetHoverIndex: null,
+  assetTrendRows: []
 };
 
 function money(value, currency = "CNY") {
@@ -81,6 +83,20 @@ function tableMoney(value, currency = "CNY") {
   const sign = Number(value) < 0 ? "-" : "";
   if (number >= 10000) return `${sign}${symbol}${(number / 10000).toFixed(2)}万`;
   return `${sign}${symbol}${number.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function fullDateLabel(date) {
+  return String(date || "").replace(/-/g, "/");
+}
+
+function signedMoney(value) {
+  const number = Number(value || 0);
+  return `${number >= 0 ? "+" : "-"}${money(Math.abs(number))}`;
+}
+
+function signedPercent(value) {
+  const number = Number(value || 0);
+  return `${number >= 0 ? "+" : ""}${number.toFixed(2)}%`;
 }
 
 function cnyValue(holding, useCost = false) {
@@ -572,7 +588,7 @@ function chartTheme() {
       };
 }
 
-function drawLineChart(canvasId, series, lines, formatter) {
+function drawLineChart(canvasId, series, lines, formatter, options = {}) {
   const canvas = document.getElementById(canvasId);
   const ctx = canvas.getContext("2d");
   const theme = chartTheme();
@@ -600,13 +616,15 @@ function drawLineChart(canvasId, series, lines, formatter) {
     ctx.fillText(formatter(value), 8, y + 4);
   }
 
-  series.forEach((item) => {
+  const chartPoints = [];
+  series.forEach((item, seriesIndex) => {
     ctx.strokeStyle = item.color || theme.line;
     ctx.lineWidth = item.width || 2;
     ctx.beginPath();
     item.values.forEach((value, idx) => {
       const x = pad.left + ((width - pad.left - pad.right) / Math.max(item.values.length - 1, 1)) * idx;
       const y = pad.top + (1 - (value - min) / range) * (height - pad.top - pad.bottom);
+      if (seriesIndex === 0) chartPoints[idx] = { x, y, value };
       if (idx === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
@@ -627,23 +645,114 @@ function drawLineChart(canvasId, series, lines, formatter) {
 
   if (lines?.length) {
     lines.forEach((label, idx) => {
+      if (!label) return;
       const x = pad.left + ((width - pad.left - pad.right) / Math.max(lines.length - 1, 1)) * idx;
       ctx.fillStyle = theme.label;
-      ctx.fillText(label, x - 16, height - 8);
+      ctx.fillText(label, Math.max(4, Math.min(x - 32, width - 84)), height - 8);
     });
   }
+
+  if (options.selectedIndex !== null && options.selectedIndex !== undefined && chartPoints[options.selectedIndex]) {
+    const point = chartPoints[options.selectedIndex];
+    ctx.save();
+    ctx.strokeStyle = "rgba(143, 244, 201, 0.62)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(point.x, pad.top);
+    ctx.lineTo(point.x, height - pad.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = theme.line;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  canvas._chartPoints = chartPoints;
+  canvas._chartPad = pad;
+  return chartPoints;
 }
 
 function makeAssetSeries() {
-  const t = totals();
-  const length = state.trendRange;
-  const trendStep = state.trendRange === 7 ? 960 : state.trendRange === 90 ? 720 : 1850;
-  return Array.from({ length }, (_, i) => {
-    const trend = i * trendStep;
-    const wave = Math.sin((i + state.seed) / 2) * 4300;
-    const step = i > length * 0.62 ? 11000 : 0;
-    return t.total - 56000 + trend + wave + step;
-  });
+  const rows = assetTrendRows();
+  state.assetTrendRows = rows;
+  return rows.map((row) => row.totalValue);
+}
+
+function assetTrendRows() {
+  const rows = (state.pnlCalendar || [])
+    .filter((row) => row.date && Number.isFinite(Number(row.totalValue)))
+    .map((row) => ({
+      date: row.date,
+      totalValue: Number(row.totalValue || 0),
+      marketValue: Number(row.marketValue || 0),
+      cash: Number(row.cash || 0),
+      dayPnl: Number(row.dayPnl || 0)
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!rows.length) {
+    const t = totals();
+    const today = new Date().toISOString().slice(0, 10);
+    return [{
+      date: today,
+      totalValue: t.total,
+      marketValue: t.market,
+      cash: state.cash,
+      dayPnl: t.daily
+    }];
+  }
+
+  const lastDate = new Date(`${rows[rows.length - 1].date}T00:00:00`);
+  const startDate = new Date(lastDate);
+  startDate.setDate(startDate.getDate() - state.trendRange + 1);
+  return rows.filter((row) => new Date(`${row.date}T00:00:00`) >= startDate);
+}
+
+function assetTrendLabels(rows) {
+  if (!rows.length) return [];
+  const keep = new Set([0, rows.length - 1]);
+  const targetLabels = Math.min(rows.length, window.innerWidth < 760 ? 3 : 5);
+  for (let i = 1; i < targetLabels - 1; i += 1) {
+    keep.add(Math.round((rows.length - 1) * (i / (targetLabels - 1))));
+  }
+  return rows.map((row, idx) => keep.has(idx) ? fullDateLabel(row.date) : "");
+}
+
+function renderAssetTrendDetail(index = null) {
+  const detail = document.getElementById("assetTrendDetail");
+  const rows = state.assetTrendRows || [];
+  if (!detail || !rows.length) return;
+  const safeIndex = index === null || index === undefined ? rows.length - 1 : Math.max(0, Math.min(index, rows.length - 1));
+  state.assetHoverIndex = safeIndex;
+  const row = rows[safeIndex];
+  const previous = rows[safeIndex - 1];
+  const change = previous ? row.totalValue - previous.totalValue : 0;
+  const changeRate = previous && previous.totalValue ? (change / previous.totalValue) * 100 : 0;
+  const tone = change >= 0 ? "gain" : "loss";
+  detail.innerHTML = `
+    <div>
+      <span>选中日期</span>
+      <strong>${fullDateLabel(row.date)}</strong>
+    </div>
+    <div>
+      <span>总资产</span>
+      <strong>${money(row.totalValue)}</strong>
+    </div>
+    <div>
+      <span>较前记录</span>
+      <strong class="${tone}">${signedMoney(change)} · ${signedPercent(changeRate)}</strong>
+    </div>
+    <div>
+      <span>证券市值 / 现金</span>
+      <strong>${money(row.marketValue)} / ${money(row.cash)}</strong>
+    </div>
+  `;
 }
 
 function makeReturnSeries(base, volatility, lift) {
@@ -684,18 +793,27 @@ function renderPnlCalendar() {
 
 function renderCharts() {
   const theme = chartTheme();
-  const trendLabels = state.trendRange === 7
-    ? ["05-09", "05-10", "05-11", "05-12", "05-13", "05-14", "05-15"]
-    : state.trendRange === 90
-      ? ["02-15", "03-01", "03-15", "04-01", "04-15", "05-01", "05-15"]
-      : ["04-20", "04-27", "05-04", "05-11", "05-18"];
+  const assetValues = makeAssetSeries();
+  const trendLabels = assetTrendLabels(state.assetTrendRows);
+  const firstTrend = state.assetTrendRows[0];
+  const lastTrend = state.assetTrendRows[state.assetTrendRows.length - 1];
+  setText(
+    "trendDateRange",
+    firstTrend && lastTrend
+      ? `（${fullDateLabel(firstTrend.date)} - ${fullDateLabel(lastTrend.date)}）`
+      : `（近${state.trendRange}天）`
+  );
+  const selectedIndex = state.assetHoverIndex === null || state.assetHoverIndex >= state.assetTrendRows.length
+    ? Math.max(state.assetTrendRows.length - 1, 0)
+    : state.assetHoverIndex;
   drawLineChart("assetChart", [{
-    values: makeAssetSeries(),
+    values: assetValues,
     color: theme.line,
     fill: theme.fill,
     fillEnd: theme.fillEnd,
     width: 3
-  }], trendLabels, (v) => `${Math.round(v / 1000)},000`);
+  }], trendLabels, (v) => tableMoney(v), { selectedIndex });
+  renderAssetTrendDetail(selectedIndex);
 
   const pnl = pnlSeries();
   const chart = document.getElementById("returnChart");
@@ -1242,9 +1360,31 @@ function setAutoRefreshInterval(seconds) {
 function cycleTrendRange() {
   const next = state.trendRange === 7 ? 30 : state.trendRange === 30 ? 90 : 7;
   state.trendRange = next;
+  state.assetHoverIndex = null;
   setText("trendRangeBtn", `近${next}天⌄`);
   renderCharts();
   showToast(`资产走势已切换到近${next}天`);
+}
+
+function updateAssetTrendSelection(event) {
+  const canvas = document.getElementById("assetChart");
+  const points = canvas?._chartPoints || [];
+  if (!canvas || !points.length) return;
+  const source = event.touches?.[0] || event.changedTouches?.[0] || event;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const x = (source.clientX - rect.left) * scaleX;
+  let nearestIndex = 0;
+  let nearestDistance = Infinity;
+  points.forEach((point, idx) => {
+    const distance = Math.abs(point.x - x);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = idx;
+    }
+  });
+  state.assetHoverIndex = nearestIndex;
+  renderCharts();
 }
 
 function showPanelMessage(kind) {
@@ -1317,6 +1457,10 @@ document.getElementById("hRows").addEventListener("click", handleHoldingAction);
 document.getElementById("uRows").addEventListener("click", handleHoldingAction);
 document.getElementById("tradeRows").addEventListener("click", handleTradeAction);
 document.getElementById("trendRangeBtn").addEventListener("click", cycleTrendRange);
+document.getElementById("assetChart").addEventListener("mousemove", updateAssetTrendSelection);
+document.getElementById("assetChart").addEventListener("click", updateAssetTrendSelection);
+document.getElementById("assetChart").addEventListener("touchstart", updateAssetTrendSelection, { passive: true });
+document.getElementById("assetChart").addEventListener("touchmove", updateAssetTrendSelection, { passive: true });
 document.getElementById("watchToggleBtn").addEventListener("click", () => {
   state.watchMode = state.watchMode === "all" ? "holdings" : "all";
   renderWatchlist();

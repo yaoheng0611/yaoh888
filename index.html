@@ -165,10 +165,11 @@
 
           <article class="panel trend-panel">
             <div class="panel-title">
-              <h3>资产走势 <span>（近30天）</span></h3>
+              <h3>资产走势 <span id="trendDateRange">（近30天）</span></h3>
               <button id="trendRangeBtn" class="select-chip">近30天⌄</button>
             </div>
             <canvas id="assetChart" width="560" height="250"></canvas>
+            <div id="assetTrendDetail" class="chart-detail"></div>
           </article>
 
           <article id="watchlistPanel" class="panel watch-panel">
