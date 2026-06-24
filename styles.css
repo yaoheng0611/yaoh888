@@ -4016,3 +4016,193 @@ html[data-theme="light"] .donut::after {
     display: none;
   }
 }
+
+/* PnL calendar v2: China-market convention, red = profit, green = loss. */
+.return-panel .pnl-calendar {
+  align-items: stretch;
+}
+
+.return-panel .pnl-calendar button {
+  display: grid;
+  align-content: space-between;
+  gap: 6px;
+  border: 1px solid rgba(139, 168, 214, 0.18);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.return-panel .pnl-calendar button b {
+  color: var(--clear-text-strong);
+  font-size: 18px;
+  font-weight: 880;
+  line-height: 1;
+}
+
+.return-panel .pnl-calendar button span,
+.return-panel .period-card strong {
+  color: var(--clear-text-2);
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.return-panel .pnl-calendar .gain-bg,
+.return-panel .period-card.gain-bg {
+  border-color: rgba(255, 80, 96, 0.34);
+  background: linear-gradient(135deg, rgba(255, 80, 96, 0.18), rgba(255, 80, 96, 0.06));
+}
+
+.return-panel .pnl-calendar .loss-bg,
+.return-panel .period-card.loss-bg {
+  border-color: rgba(40, 190, 118, 0.32);
+  background: linear-gradient(135deg, rgba(40, 190, 118, 0.18), rgba(40, 190, 118, 0.06));
+}
+
+.return-panel .pnl-calendar .gain-bg span,
+.return-panel .period-card.gain-bg strong {
+  color: #ff4f67;
+}
+
+.return-panel .pnl-calendar .loss-bg span,
+.return-panel .period-card.loss-bg strong {
+  color: #26c878;
+}
+
+.return-panel .pnl-calendar .flat-bg,
+.return-panel .period-card.flat-bg {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.return-panel .pnl-calendar button.non-trading,
+.return-panel .pnl-calendar button.future-day,
+.return-panel .period-card.no-record,
+.return-panel .period-card.future-day {
+  opacity: 1;
+  border-color: rgba(148, 163, 184, 0.12);
+  background: rgba(118, 128, 148, 0.11);
+  color: var(--clear-text-3);
+}
+
+.return-panel .pnl-calendar button.non-trading b,
+.return-panel .pnl-calendar button.future-day b,
+.return-panel .period-card.no-record b,
+.return-panel .period-card.future-day b,
+.return-panel .period-card.no-record strong,
+.return-panel .period-card.future-day strong {
+  color: var(--clear-text-3);
+}
+
+.return-panel .pnl-calendar button.holiday {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(148, 163, 184, 0.12),
+    rgba(148, 163, 184, 0.12) 8px,
+    rgba(148, 163, 184, 0.06) 8px,
+    rgba(148, 163, 184, 0.06) 16px
+  );
+}
+
+.return-panel .pnl-calendar button.today,
+.return-panel .period-card.today {
+  outline: 2px solid rgba(93, 139, 255, 0.72);
+  outline-offset: 2px;
+}
+
+.pnl-period-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.pnl-period-grid.month-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pnl-period-grid.year-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.period-card {
+  min-height: 96px;
+  border-radius: 16px;
+  padding: 16px;
+  text-align: center;
+}
+
+.period-card b {
+  font-size: 20px;
+}
+
+.period-card small {
+  justify-self: center;
+  color: var(--clear-text-3);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.calendar-summary {
+  margin-top: 14px;
+  padding: 13px 16px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 10px;
+  border-top: 1px solid rgba(139, 168, 214, 0.16);
+  color: var(--clear-text-2);
+  font-weight: 760;
+}
+
+.calendar-summary strong {
+  color: var(--clear-text-strong);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.calendar-summary strong.gain {
+  color: #ff4f67;
+}
+
+.calendar-summary strong.loss {
+  color: #26c878;
+}
+
+html[data-theme="light"] .return-panel .pnl-calendar button {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+html[data-theme="light"] .return-panel .pnl-calendar .gain-bg,
+html[data-theme="light"] .return-panel .period-card.gain-bg {
+  background: #ffe9ec;
+}
+
+html[data-theme="light"] .return-panel .pnl-calendar .loss-bg,
+html[data-theme="light"] .return-panel .period-card.loss-bg {
+  background: #e7f7ed;
+}
+
+@media (max-width: 760px) {
+  .pnl-period-grid.month-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pnl-period-grid.year-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .period-card {
+    min-height: 84px;
+    padding: 12px 8px;
+  }
+
+  .period-card b {
+    font-size: 17px;
+  }
+
+  .return-panel .pnl-calendar button span,
+  .return-panel .period-card strong {
+    font-size: 15px;
+  }
+
+  .calendar-summary {
+    justify-content: space-between;
+  }
+}

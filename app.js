@@ -877,10 +877,133 @@ function marketHolidayLabel(dateString) {
   return holidays[dateString] || "";
 }
 
+function selectedCalendarYear(rows) {
+  const latestDate = rows.length ? rows[rows.length - 1].date : new Date().toISOString().slice(0, 10);
+  const currentMonth = state.calendarMonth || latestDate.slice(0, 7);
+  const year = Number(String(currentMonth).slice(0, 4));
+  return Number.isFinite(year) ? year : Number(latestDate.slice(0, 4));
+}
+
+function periodTone(value) {
+  if (value > 0) return "gain-bg";
+  if (value < 0) return "loss-bg";
+  return "flat-bg";
+}
+
+function periodValueText(value, hasData) {
+  if (!hasData) return "--";
+  const number = Number(value || 0);
+  return `${number > 0 ? "+" : ""}${tableMoney(number)}`;
+}
+
+function renderCalendarSummary(text, value, hasData = true) {
+  const summary = document.getElementById("pnlCalendarSummary");
+  if (!summary) return;
+  const tone = value > 0 ? "gain" : value < 0 ? "loss" : "";
+  summary.innerHTML = `
+    <span>${text}</span>
+    <strong class="${tone}">${periodValueText(value, hasData)}</strong>
+  `;
+}
+
+function monthPnlCards(rows, year) {
+  const grouped = new Map();
+  rows.forEach((row) => {
+    if (Number(row.date.slice(0, 4)) !== year) return;
+    const month = Number(row.date.slice(5, 7));
+    grouped.set(month, (grouped.get(month) || 0) + row.value);
+  });
+  return Array.from({ length: 12 }, (_, idx) => {
+    const month = idx + 1;
+    const hasData = grouped.has(month);
+    return {
+      key: `${year}-${String(month).padStart(2, "0")}`,
+      label: `${month}月`,
+      value: hasData ? grouped.get(month) : 0,
+      hasData
+    };
+  });
+}
+
+function yearPnlCards(rows) {
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const year = row.date.slice(0, 4);
+    grouped.set(year, (grouped.get(year) || 0) + row.value);
+  });
+  if (!grouped.size) grouped.set(String(new Date().getFullYear()), 0);
+  return Array.from(grouped, ([year, value]) => ({
+    key: year,
+    label: `${year}年`,
+    value,
+    hasData: rows.some((row) => row.date.startsWith(year))
+  })).sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function renderPeriodCalendar(rows) {
+  const container = document.getElementById("pnlCalendar");
+  const title = document.getElementById("pnlCalendarTitle");
+  if (!container) return;
+  const today = new Date();
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth() + 1;
+
+  if (state.pnlPeriod === "month") {
+    const year = selectedCalendarYear(rows);
+    if (title) title.textContent = `${year}年 月收益`;
+    const cards = monthPnlCards(rows, year);
+    const annual = cards.reduce((sum, row) => sum + (row.hasData ? row.value : 0), 0);
+    container.className = "pnl-calendar pnl-period-grid month-grid";
+    container.innerHTML = cards.map((row, idx) => {
+      const month = idx + 1;
+      const future = year > todayYear || (year === todayYear && month > todayMonth);
+      const current = year === todayYear && month === todayMonth;
+      const cls = [
+        "period-card",
+        row.hasData && !future ? periodTone(row.value) : "no-record",
+        future ? "future-day" : "",
+        current ? "today" : ""
+      ].filter(Boolean).join(" ");
+      const note = future ? "未到月份" : row.hasData ? "月收益" : "无记录";
+      return `
+        <button class="${cls}" type="button" title="${year}年${month}月 ${note}">
+          <b>${row.label}</b>
+          <strong>${periodValueText(row.value, row.hasData && !future)}</strong>
+          <small>${note}</small>
+        </button>
+      `;
+    }).join("");
+    renderCalendarSummary(`${year}年总收益`, annual);
+    return;
+  }
+
+  if (state.pnlPeriod === "year") {
+    if (title) title.textContent = "年度收益";
+    const cards = yearPnlCards(rows);
+    const total = cards.reduce((sum, row) => sum + (row.hasData ? row.value : 0), 0);
+    container.className = "pnl-calendar pnl-period-grid year-grid";
+    container.innerHTML = cards.map((row) => {
+      const cls = ["period-card", row.hasData ? periodTone(row.value) : "no-record"].join(" ");
+      return `
+        <button class="${cls}" type="button" title="${row.label} 收益">
+          <b>${row.label}</b>
+          <strong>${periodValueText(row.value, row.hasData)}</strong>
+          <small>${row.hasData ? "年收益" : "无记录"}</small>
+        </button>
+      `;
+    }).join("");
+    renderCalendarSummary("累计收益", total);
+  }
+}
+
 function renderPnlCalendar() {
   const container = document.getElementById("pnlCalendar");
   const title = document.getElementById("pnlCalendarTitle");
   const rows = pnlRowsSorted();
+  if (state.pnlPeriod !== "day") {
+    renderPeriodCalendar(rows);
+    return;
+  }
   const latestDate = rows.length ? rows[rows.length - 1].date : new Date().toISOString().slice(0, 10);
   const currentMonth = state.calendarMonth || latestDate.slice(0, 7);
   state.calendarMonth = currentMonth;
@@ -892,6 +1015,7 @@ function renderPnlCalendar() {
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const byDate = new Map(rows.map((row) => [row.date, row]));
   if (title) title.textContent = `${year}年${String(month).padStart(2, "0")}月`;
+  container.className = "pnl-calendar";
 
   const cells = [];
   ["周日", "周一", "周二", "周三", "周四", "周五", "周六"].forEach((label) => {
@@ -922,6 +1046,10 @@ function renderPnlCalendar() {
     `);
   }
   container.innerHTML = cells.join("");
+  const monthTotal = rows
+    .filter((row) => row.date.startsWith(currentMonth))
+    .reduce((sum, row) => sum + row.value, 0);
+  renderCalendarSummary(`${year}年${String(month).padStart(2, "0")}月收益`, monthTotal);
 }
 
 function renderCharts() {
@@ -1558,6 +1686,13 @@ function shiftPnlCalendarMonth(delta) {
   const rows = pnlRowsSorted();
   const baseMonth = state.calendarMonth || (rows.length ? rows[rows.length - 1].date.slice(0, 7) : new Date().toISOString().slice(0, 7));
   const [year, month] = baseMonth.split("-").map(Number);
+  if (state.pnlPeriod === "year") return;
+  if (state.pnlPeriod === "month") {
+    const nextYear = year + delta;
+    state.calendarMonth = `${nextYear}-01`;
+    renderPnlCalendar();
+    return;
+  }
   const next = new Date(year, month - 1 + delta, 1);
   state.calendarMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
   renderPnlCalendar();
@@ -1667,6 +1802,7 @@ document.querySelectorAll("[data-pnl-period]").forEach((button) => {
   button.addEventListener("click", () => {
     state.pnlPeriod = button.dataset.pnlPeriod;
     state.returnHoverIndex = null;
+    state.calendarMonth = null;
     document.querySelectorAll("[data-pnl-period]").forEach((item) => item.classList.toggle("active", item === button));
     renderCharts();
     showToast(`盈亏维度：${button.textContent.trim()}`);
