@@ -900,6 +900,70 @@ function replaceHoldings(rows) {
   rows.forEach((row) => insertHolding(normalizeHolding(row)));
 }
 
+function replaceTransactions(rows = []) {
+  db.exec("DELETE FROM transactions");
+  const insert = db.prepare(`
+    INSERT INTO transactions (trade_date, market, ticker, name, side, qty, price, fee, currency, realized_pnl)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  rows.forEach((row) => {
+    const record = normalizeTransactionRecord(row);
+    insert.run(
+      record.tradeDate,
+      record.market,
+      record.ticker,
+      record.name,
+      record.side,
+      record.qty,
+      record.price,
+      record.fee,
+      record.currency,
+      record.realizedPnl
+    );
+  });
+}
+
+function replaceDailySnapshots(rows = []) {
+  db.exec("DELETE FROM daily_snapshots");
+  const insert = db.prepare(`
+    INSERT INTO daily_snapshots (snapshot_date, total_value, market_value, cash, day_pnl, realized_pnl, unrealized_pnl, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `);
+  rows.forEach((row) => {
+    const date = String(row.date || row.snapshotDate || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("snapshot date must be YYYY-MM-DD");
+    insert.run(
+      date,
+      Number(row.totalValue || 0),
+      Number(row.marketValue || 0),
+      Number(row.cash || 0),
+      Number(row.dayPnl || 0),
+      Number(row.realizedPnl || 0),
+      Number(row.unrealizedPnl || 0)
+    );
+  });
+}
+
+function replaceState(input) {
+  if (!Array.isArray(input.holdings)) throw new Error("holdings must be an array");
+  db.exec("BEGIN");
+  try {
+    replaceHoldings(input.holdings);
+    if (input.cashAccounts) {
+      if (input.cashAccounts.ashare !== undefined) setCashAccount("A股", Number(input.cashAccounts.ashare));
+      if (input.cashAccounts.hk !== undefined) setCashAccount("港股", Number(input.cashAccounts.hk));
+      if (input.cashAccounts.us !== undefined) setCashAccount("美股", Number(input.cashAccounts.us));
+    }
+    replaceTransactions(Array.isArray(input.transactions) ? input.transactions : []);
+    replaceDailySnapshots(Array.isArray(input.pnlCalendar) ? input.pnlCalendar : []);
+    cashAccounts();
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 function normalizeTrade(input) {
   const holding = normalizeHolding({
     market: input.market,
@@ -1403,6 +1467,13 @@ async function handleApi(req, res, url) {
         cashAccounts();
       }
       if (input.dayPnlByMarket) saveDayPnlSnapshotByMarket(input.dayPnlByMarket);
+      sendJson(res, 200, dashboard());
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/state/replace") {
+      const input = JSON.parse(await readBody(req));
+      replaceState(input);
       sendJson(res, 200, dashboard());
       return true;
     }
