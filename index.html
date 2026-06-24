@@ -274,13 +274,21 @@
               <div class="tabs">
                 <button class="active" data-pnl-view="curve">曲线</button>
                 <button data-pnl-view="calendar">日历</button>
-                <button data-pnl-period="day">日</button>
+                <button class="active" data-pnl-period="day">日</button>
                 <button data-pnl-period="month">月</button>
                 <button data-pnl-period="year">年</button>
               </div>
             </div>
             <canvas id="returnChart" width="720" height="230"></canvas>
-            <div id="pnlCalendar" class="pnl-calendar" hidden></div>
+            <div id="pnlDetail" class="chart-detail pnl-detail"></div>
+            <div id="pnlCalendarShell" class="pnl-calendar-shell" hidden>
+              <div class="calendar-head">
+                <button id="pnlCalendarPrev" type="button">‹</button>
+                <strong id="pnlCalendarTitle">--</strong>
+                <button id="pnlCalendarNext" type="button">›</button>
+              </div>
+              <div id="pnlCalendar" class="pnl-calendar"></div>
+            </div>
           </article>
 
           <article id="tradeRecordsPanel" class="panel trade-records-panel">

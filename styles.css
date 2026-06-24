@@ -3913,3 +3913,106 @@ html[data-theme="light"] .donut::after {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+.pnl-detail {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pnl-calendar-shell[hidden] {
+  display: none;
+}
+
+.calendar-head {
+  margin: 10px 0 12px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 10px;
+}
+
+.calendar-head strong {
+  text-align: center;
+  color: var(--clear-text-strong);
+  font-size: 18px;
+  font-weight: 820;
+}
+
+.calendar-head button {
+  height: 36px;
+  border-radius: 12px;
+  color: var(--clear-text);
+  background: var(--clear-chip);
+  border: 1px solid var(--clear-border);
+}
+
+.pnl-calendar {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.calendar-weekday {
+  padding: 4px 6px;
+  color: var(--clear-text-3);
+  font-size: 12px;
+  font-weight: 760;
+  text-align: center;
+}
+
+.calendar-empty {
+  min-height: 74px;
+}
+
+.pnl-calendar button {
+  min-height: 74px;
+  border-radius: 14px;
+  text-align: left;
+}
+
+.pnl-calendar button small {
+  color: var(--clear-text-3);
+  font-size: 10px;
+}
+
+.pnl-calendar button.non-trading,
+.pnl-calendar button.future-day {
+  opacity: 0.58;
+  background: rgba(128, 143, 138, 0.08);
+}
+
+.pnl-calendar button.holiday {
+  border-color: rgba(255, 178, 67, 0.38);
+  background: rgba(255, 178, 67, 0.12);
+}
+
+.pnl-calendar button.today {
+  outline: 2px solid rgba(85, 230, 173, 0.52);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .pnl-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .calendar-head {
+    grid-template-columns: 34px minmax(0, 1fr) 34px;
+  }
+
+  .pnl-calendar {
+    grid-template-columns: repeat(7, minmax(40px, 1fr));
+    gap: 5px;
+  }
+
+  .calendar-empty {
+    min-height: 54px;
+  }
+
+  .pnl-calendar button {
+    min-height: 58px;
+    padding: 5px;
+  }
+
+  .pnl-calendar button small {
+    display: none;
+  }
+}

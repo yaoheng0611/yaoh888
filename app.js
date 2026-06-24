@@ -64,7 +64,10 @@ const state = {
     inFlight: false
   },
   assetHoverIndex: null,
-  assetTrendRows: []
+  assetTrendRows: [],
+  returnHoverIndex: null,
+  returnSeriesRows: [],
+  calendarMonth: null
 };
 
 function money(value, currency = "CNY") {
@@ -755,40 +758,170 @@ function renderAssetTrendDetail(index = null) {
   `;
 }
 
-function makeReturnSeries(base, volatility, lift) {
-  return Array.from({ length: 28 }, (_, i) => {
-    const curve = base + Math.sin((i + state.seed) / 2.5) * volatility + i * lift;
-    const dip = i === 20 ? -5.5 : 0;
-    return curve + dip;
-  });
+function pnlRowsSorted() {
+  return (state.pnlCalendar || [])
+    .filter((row) => row.date)
+    .map((row) => ({
+      date: row.date,
+      value: Number(row.dayPnl || 0),
+      totalValue: Number(row.totalValue || 0),
+      marketValue: Number(row.marketValue || 0),
+      cash: Number(row.cash || 0)
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function pnlSeries() {
-  const rows = state.pnlCalendar;
+  const rows = pnlRowsSorted();
   if (!rows.length) return [];
-  if (state.pnlPeriod === "day") return rows.map((row) => ({ label: row.date.slice(5), value: Number(row.dayPnl || 0) }));
+  if (state.pnlPeriod === "day") {
+    return rows.map((row) => ({
+      key: row.date,
+      label: fullDateLabel(row.date),
+      value: row.value,
+      totalValue: row.totalValue,
+      marketValue: row.marketValue,
+      cash: row.cash,
+      hasData: true
+    }));
+  }
+
+  if (state.pnlPeriod === "month") {
+    const latestYear = Number(rows[rows.length - 1].date.slice(0, 4));
+    const grouped = new Map();
+    rows.forEach((row) => {
+      const year = Number(row.date.slice(0, 4));
+      if (year !== latestYear) return;
+      const month = Number(row.date.slice(5, 7));
+      grouped.set(month, (grouped.get(month) || 0) + row.value);
+    });
+    return Array.from({ length: 12 }, (_, idx) => {
+      const month = idx + 1;
+      const hasData = grouped.has(month);
+      return {
+        key: `${latestYear}-${String(month).padStart(2, "0")}`,
+        label: `${latestYear}/${String(month).padStart(2, "0")}`,
+        value: hasData ? grouped.get(month) : 0,
+        hasData
+      };
+    });
+  }
+
   const grouped = new Map();
   rows.forEach((row) => {
-    const key = state.pnlPeriod === "month" ? row.date.slice(0, 7) : row.date.slice(0, 4);
-    grouped.set(key, (grouped.get(key) || 0) + Number(row.dayPnl || 0));
+    const year = row.date.slice(0, 4);
+    grouped.set(year, (grouped.get(year) || 0) + row.value);
   });
-  return Array.from(grouped, ([label, value]) => ({ label, value }));
+  return Array.from(grouped, ([year, value]) => ({
+    key: year,
+    label: year,
+    value,
+    hasData: true
+  })).sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function pnlAxisLabels(rows) {
+  if (!rows.length) return [];
+  if (state.pnlPeriod === "month") return rows.map((row) => row.label.slice(5) + "月");
+  if (state.pnlPeriod === "year") return rows.map((row) => row.label);
+  const keep = new Set([0, rows.length - 1]);
+  const count = Math.min(rows.length, window.innerWidth < 760 ? 3 : 6);
+  for (let i = 1; i < count - 1; i += 1) {
+    keep.add(Math.round((rows.length - 1) * (i / (count - 1))));
+  }
+  return rows.map((row, idx) => keep.has(idx) ? row.label : "");
+}
+
+function renderPnlDetail(index = null) {
+  const detail = document.getElementById("pnlDetail");
+  const rows = state.returnSeriesRows || [];
+  if (!detail || !rows.length) return;
+  const safeIndex = index === null || index === undefined ? rows.length - 1 : Math.max(0, Math.min(index, rows.length - 1));
+  state.returnHoverIndex = safeIndex;
+  const row = rows[safeIndex];
+  const previous = rows[safeIndex - 1];
+  const change = previous ? row.value - previous.value : 0;
+  const rate = previous && Math.abs(previous.value) > 0 ? (change / Math.abs(previous.value)) * 100 : 0;
+  detail.innerHTML = `
+    <div>
+      <span>周期</span>
+      <strong>${row.label}</strong>
+    </div>
+    <div>
+      <span>盈亏</span>
+      <strong class="${row.value >= 0 ? "gain" : "loss"}">${signedMoney(row.value)}</strong>
+    </div>
+    <div>
+      <span>较前周期</span>
+      <strong class="${change >= 0 ? "gain" : "loss"}">${signedMoney(change)} · ${signedPercent(rate)}</strong>
+    </div>
+    <div>
+      <span>数据状态</span>
+      <strong>${row.hasData ? "有记录" : "无交易记录"}</strong>
+    </div>
+  `;
+}
+
+function marketHolidayLabel(dateString) {
+  const holidays = {
+    "2026-01-01": "节假日",
+    "2026-02-16": "春节",
+    "2026-02-17": "春节",
+    "2026-02-18": "春节",
+    "2026-04-03": "清明",
+    "2026-05-01": "劳动节",
+    "2026-06-19": "节假日",
+    "2026-10-01": "国庆",
+    "2026-10-02": "国庆"
+  };
+  return holidays[dateString] || "";
 }
 
 function renderPnlCalendar() {
   const container = document.getElementById("pnlCalendar");
-  const rows = state.pnlCalendar;
+  const title = document.getElementById("pnlCalendarTitle");
+  const rows = pnlRowsSorted();
+  const latestDate = rows.length ? rows[rows.length - 1].date : new Date().toISOString().slice(0, 10);
+  const currentMonth = state.calendarMonth || latestDate.slice(0, 7);
+  state.calendarMonth = currentMonth;
+  const [year, month] = currentMonth.split("-").map(Number);
+  const first = new Date(year, month - 1, 1);
+  const days = new Date(year, month, 0).getDate();
+  const leading = first.getDay();
   const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const days = new Date(year, month + 1, 0).getDate();
-  const byDay = new Map(rows.map((row) => [Number(row.date.slice(8, 10)), Number(row.dayPnl || 0)]));
-  container.innerHTML = Array.from({ length: days }, (_, idx) => {
-    const day = idx + 1;
-    const value = byDay.get(day);
-    const cls = value === undefined ? "" : value >= 0 ? "gain-bg" : "loss-bg";
-    return `<button class="${cls}" title="${value === undefined ? "暂无记录" : tableMoney(value)}"><b>${day}</b><span>${value === undefined ? "--" : tableMoney(value)}</span></button>`;
-  }).join("");
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  if (title) title.textContent = `${year}年${String(month).padStart(2, "0")}月`;
+
+  const cells = [];
+  ["周日", "周一", "周二", "周三", "周四", "周五", "周六"].forEach((label) => {
+    cells.push(`<div class="calendar-weekday">${label}</div>`);
+  });
+  for (let i = 0; i < leading; i += 1) cells.push(`<div class="calendar-empty"></div>`);
+  for (let day = 1; day <= days; day += 1) {
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const value = byDate.get(date)?.value;
+    const week = new Date(year, month - 1, day).getDay();
+    const weekend = week === 0 || week === 6;
+    const holiday = marketHolidayLabel(date);
+    const future = date > todayKey;
+    const cls = [
+      value === undefined ? "" : value >= 0 ? "gain-bg" : "loss-bg",
+      weekend ? "non-trading" : "",
+      holiday ? "holiday" : "",
+      future ? "future-day" : "",
+      date === todayKey ? "today" : ""
+    ].filter(Boolean).join(" ");
+    const note = holiday || (weekend ? "周末休市" : future ? "未到日期" : value === undefined ? "无记录" : "交易日");
+    cells.push(`
+      <button class="${cls}" title="${fullDateLabel(date)} ${note}">
+        <b>${day}</b>
+        <span>${value === undefined ? "--" : tableMoney(value)}</span>
+        <small>${note}</small>
+      </button>
+    `);
+  }
+  container.innerHTML = cells.join("");
 }
 
 function renderCharts() {
@@ -816,10 +949,13 @@ function renderCharts() {
   renderAssetTrendDetail(selectedIndex);
 
   const pnl = pnlSeries();
+  state.returnSeriesRows = pnl;
   const chart = document.getElementById("returnChart");
-  const calendar = document.getElementById("pnlCalendar");
+  const calendar = document.getElementById("pnlCalendarShell");
+  const detail = document.getElementById("pnlDetail");
   chart.hidden = state.pnlView === "calendar";
   calendar.hidden = state.pnlView !== "calendar";
+  if (detail) detail.hidden = state.pnlView === "calendar";
   if (state.pnlView === "calendar") {
     renderPnlCalendar();
   } else if (!pnl.length) {
@@ -829,7 +965,17 @@ function renderCharts() {
     ctx.font = "600 14px Microsoft YaHei, PingFang SC, sans-serif";
     ctx.fillText("暂无真实盈亏记录，刷新行情或记录交易后生成", 24, 42);
   } else {
-    drawLineChart("returnChart", [{ values: pnl.map((row) => row.value), color: theme.line, width: 3 }], pnl.map((row) => row.label), (v) => tableMoney(v));
+    const selectedReturnIndex = state.returnHoverIndex === null || state.returnHoverIndex >= pnl.length
+      ? Math.max(pnl.length - 1, 0)
+      : state.returnHoverIndex;
+    drawLineChart(
+      "returnChart",
+      [{ values: pnl.map((row) => row.value), color: theme.line, fill: theme.fill, fillEnd: theme.fillEnd, width: 3 }],
+      pnlAxisLabels(pnl),
+      (v) => tableMoney(v),
+      { selectedIndex: selectedReturnIndex }
+    );
+    renderPnlDetail(selectedReturnIndex);
   }
 }
 
@@ -1387,6 +1533,36 @@ function updateAssetTrendSelection(event) {
   renderCharts();
 }
 
+function updateReturnSelection(event) {
+  const canvas = document.getElementById("returnChart");
+  const points = canvas?._chartPoints || [];
+  if (!canvas || !points.length || state.pnlView === "calendar") return;
+  const source = event.touches?.[0] || event.changedTouches?.[0] || event;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const x = (source.clientX - rect.left) * scaleX;
+  let nearestIndex = 0;
+  let nearestDistance = Infinity;
+  points.forEach((point, idx) => {
+    const distance = Math.abs(point.x - x);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = idx;
+    }
+  });
+  state.returnHoverIndex = nearestIndex;
+  renderCharts();
+}
+
+function shiftPnlCalendarMonth(delta) {
+  const rows = pnlRowsSorted();
+  const baseMonth = state.calendarMonth || (rows.length ? rows[rows.length - 1].date.slice(0, 7) : new Date().toISOString().slice(0, 7));
+  const [year, month] = baseMonth.split("-").map(Number);
+  const next = new Date(year, month - 1 + delta, 1);
+  state.calendarMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+  renderPnlCalendar();
+}
+
 function showPanelMessage(kind) {
   if (kind === "news") {
     loadMarketIntel(true);
@@ -1461,6 +1637,12 @@ document.getElementById("assetChart").addEventListener("mousemove", updateAssetT
 document.getElementById("assetChart").addEventListener("click", updateAssetTrendSelection);
 document.getElementById("assetChart").addEventListener("touchstart", updateAssetTrendSelection, { passive: true });
 document.getElementById("assetChart").addEventListener("touchmove", updateAssetTrendSelection, { passive: true });
+document.getElementById("returnChart").addEventListener("mousemove", updateReturnSelection);
+document.getElementById("returnChart").addEventListener("click", updateReturnSelection);
+document.getElementById("returnChart").addEventListener("touchstart", updateReturnSelection, { passive: true });
+document.getElementById("returnChart").addEventListener("touchmove", updateReturnSelection, { passive: true });
+document.getElementById("pnlCalendarPrev").addEventListener("click", () => shiftPnlCalendarMonth(-1));
+document.getElementById("pnlCalendarNext").addEventListener("click", () => shiftPnlCalendarMonth(1));
 document.getElementById("watchToggleBtn").addEventListener("click", () => {
   state.watchMode = state.watchMode === "all" ? "holdings" : "all";
   renderWatchlist();
@@ -1475,6 +1657,7 @@ document.getElementById("advisorModelSelect").addEventListener("change", changeA
 document.querySelectorAll("[data-pnl-view]").forEach((button) => {
   button.addEventListener("click", () => {
     state.pnlView = button.dataset.pnlView;
+    state.returnHoverIndex = null;
     document.querySelectorAll("[data-pnl-view]").forEach((item) => item.classList.toggle("active", item === button));
     renderCharts();
     showToast(button.textContent.trim());
@@ -1483,6 +1666,7 @@ document.querySelectorAll("[data-pnl-view]").forEach((button) => {
 document.querySelectorAll("[data-pnl-period]").forEach((button) => {
   button.addEventListener("click", () => {
     state.pnlPeriod = button.dataset.pnlPeriod;
+    state.returnHoverIndex = null;
     document.querySelectorAll("[data-pnl-period]").forEach((item) => item.classList.toggle("active", item === button));
     renderCharts();
     showToast(`盈亏维度：${button.textContent.trim()}`);
