@@ -1010,15 +1010,16 @@ function renderPnlCalendar() {
   const [year, month] = currentMonth.split("-").map(Number);
   const first = new Date(year, month - 1, 1);
   const days = new Date(year, month, 0).getDate();
-  const leading = first.getDay();
+  const firstWeek = first.getDay();
+  const leading = firstWeek === 0 || firstWeek === 6 ? 0 : firstWeek - 1;
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const byDate = new Map(rows.map((row) => [row.date, row]));
   if (title) title.textContent = `${year}年${String(month).padStart(2, "0")}月`;
-  container.className = "pnl-calendar";
+  container.className = "pnl-calendar trading-calendar";
 
   const cells = [];
-  ["周日", "周一", "周二", "周三", "周四", "周五", "周六"].forEach((label) => {
+  ["周一", "周二", "周三", "周四", "周五"].forEach((label) => {
     cells.push(`<div class="calendar-weekday">${label}</div>`);
   });
   for (let i = 0; i < leading; i += 1) cells.push(`<div class="calendar-empty"></div>`);
@@ -1027,6 +1028,7 @@ function renderPnlCalendar() {
     const value = byDate.get(date)?.value;
     const week = new Date(year, month - 1, day).getDay();
     const weekend = week === 0 || week === 6;
+    if (weekend) continue;
     const holiday = marketHolidayLabel(date);
     const future = date > todayKey;
     const cls = [

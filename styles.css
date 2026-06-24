@@ -4022,6 +4022,11 @@ html[data-theme="light"] .donut::after {
   align-items: stretch;
 }
 
+.return-panel .trading-calendar {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .return-panel .pnl-calendar button {
   display: grid;
   align-content: space-between;
@@ -4035,6 +4040,7 @@ html[data-theme="light"] .donut::after {
   font-size: 18px;
   font-weight: 880;
   line-height: 1;
+  text-align: center;
 }
 
 .return-panel .pnl-calendar button span,
@@ -4043,6 +4049,7 @@ html[data-theme="light"] .donut::after {
   font-size: 17px;
   font-weight: 900;
   line-height: 1.1;
+  text-align: center;
 }
 
 .return-panel .pnl-calendar .gain-bg,
@@ -4106,6 +4113,18 @@ html[data-theme="light"] .donut::after {
 .return-panel .period-card.today {
   outline: 2px solid rgba(93, 139, 255, 0.72);
   outline-offset: 2px;
+}
+
+.return-panel .trading-calendar button.today {
+  border-color: rgba(255, 47, 57, 0.78);
+  background: linear-gradient(180deg, #ff3340, #e92431);
+  box-shadow: 0 12px 22px rgba(255, 47, 57, 0.28);
+}
+
+.return-panel .trading-calendar button.today b,
+.return-panel .trading-calendar button.today span,
+.return-panel .trading-calendar button.today small {
+  color: #fff;
 }
 
 .pnl-period-grid {
@@ -4200,6 +4219,11 @@ html[data-theme="light"] .return-panel .period-card.loss-bg {
   .return-panel .pnl-calendar button span,
   .return-panel .period-card strong {
     font-size: 15px;
+  }
+
+  .return-panel .trading-calendar {
+    grid-template-columns: repeat(5, minmax(48px, 1fr));
+    gap: 4px;
   }
 
   .calendar-summary {
