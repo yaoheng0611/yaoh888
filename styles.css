@@ -4230,3 +4230,60 @@ html[data-theme="light"] .return-panel .period-card.loss-bg {
     justify-content: space-between;
   }
 }
+
+/* PnL readability pass */
+.return-panel #returnChart {
+  height: 190px;
+}
+
+.return-panel .chart-detail div {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(139, 168, 214, 0.18);
+}
+
+.return-panel .chart-detail span,
+.return-panel .pnl-calendar button small,
+.return-panel .period-card small {
+  color: var(--text-tertiary);
+}
+
+.return-panel .chart-detail strong,
+.return-panel .pnl-calendar button b {
+  color: var(--text-strong);
+}
+
+.return-panel .pnl-calendar .flat-bg span,
+.return-panel .period-card.flat-bg strong {
+  color: var(--text-secondary);
+}
+
+html[data-theme="dark"] .return-panel .chart-detail div {
+  background: rgba(236, 255, 248, 0.055);
+  border-color: rgba(214, 255, 244, 0.16);
+}
+
+html[data-theme="dark"] .return-panel .chart-detail span,
+html[data-theme="dark"] .return-panel .pnl-calendar button small,
+html[data-theme="dark"] .return-panel .period-card small {
+  color: rgba(218, 238, 230, 0.68);
+}
+
+html[data-theme="dark"] .return-panel .chart-detail strong,
+html[data-theme="dark"] .return-panel .pnl-calendar button b,
+html[data-theme="dark"] .return-panel .pnl-calendar .flat-bg span,
+html[data-theme="dark"] .return-panel .period-card.flat-bg strong,
+html[data-theme="dark"] .calendar-summary {
+  color: rgba(248, 255, 251, 0.92);
+}
+
+html[data-theme="dark"] .return-panel .pnl-calendar button.future-day,
+html[data-theme="dark"] .return-panel .period-card.future-day {
+  background: rgba(148, 163, 184, 0.13);
+}
+
+html[data-theme="dark"] .return-panel .pnl-calendar button.future-day b,
+html[data-theme="dark"] .return-panel .pnl-calendar button.future-day span,
+html[data-theme="dark"] .return-panel .period-card.future-day b,
+html[data-theme="dark"] .return-panel .period-card.future-day strong {
+  color: rgba(218, 238, 230, 0.58);
+}

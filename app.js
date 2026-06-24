@@ -595,28 +595,38 @@ function drawLineChart(canvasId, series, lines, formatter, options = {}) {
   const canvas = document.getElementById(canvasId);
   const ctx = canvas.getContext("2d");
   const theme = chartTheme();
-  const width = canvas.width;
-  const height = canvas.height;
-  const pad = { top: 18, right: 18, bottom: 28, left: 54 };
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const cssWidth = Math.max(320, Math.round(rect.width || canvas.clientWidth || canvas.width));
+  const cssHeight = Math.max(180, Math.round(rect.height || canvas.clientHeight || 220));
+  canvas.width = Math.round(cssWidth * dpr);
+  canvas.height = Math.round(cssHeight * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const width = cssWidth;
+  const height = cssHeight;
+  const pad = { top: 26, right: 24, bottom: 38, left: 82 };
   ctx.clearRect(0, 0, width, height);
-  ctx.font = "600 12px Microsoft YaHei, PingFang SC, sans-serif";
+  ctx.font = "700 12px Microsoft YaHei, PingFang SC, sans-serif";
   ctx.lineWidth = 1;
 
   const allValues = series.flatMap((s) => s.values);
-  const min = Math.min(...allValues);
-  const max = Math.max(...allValues);
+  const rawMin = Math.min(...allValues, 0);
+  const rawMax = Math.max(...allValues, 0);
+  const padding = Math.max((rawMax - rawMin) * 0.16, Math.max(Math.abs(rawMax), Math.abs(rawMin), 1) * 0.04);
+  const min = rawMin - padding;
+  const max = rawMax + padding;
   const range = Math.max(max - min, 1);
 
-  for (let i = 0; i <= 5; i += 1) {
-    const y = pad.top + ((height - pad.top - pad.bottom) / 5) * i;
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + ((height - pad.top - pad.bottom) / 4) * i;
     ctx.strokeStyle = theme.grid;
     ctx.beginPath();
     ctx.moveTo(pad.left, y);
     ctx.lineTo(width - pad.right, y);
     ctx.stroke();
-    const value = max - (range / 5) * i;
+    const value = max - (range / 4) * i;
     ctx.fillStyle = theme.label;
-    ctx.fillText(formatter(value), 8, y + 4);
+    ctx.fillText(formatter(value), 10, y + 4);
   }
 
   const chartPoints = [];
@@ -678,6 +688,7 @@ function drawLineChart(canvasId, series, lines, formatter, options = {}) {
 
   canvas._chartPoints = chartPoints;
   canvas._chartPad = pad;
+  canvas._chartCssWidth = width;
   return chartPoints;
 }
 
@@ -766,13 +777,74 @@ function pnlRowsSorted() {
       value: Number(row.dayPnl || 0),
       totalValue: Number(row.totalValue || 0),
       marketValue: Number(row.marketValue || 0),
-      cash: Number(row.cash || 0)
+      cash: Number(row.cash || 0),
+      realizedPnl: Number(row.realizedPnl || 0),
+      unrealizedPnl: Number(row.unrealizedPnl || 0),
+      hasData: true
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function dateKeyOf(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function todayKey() {
+  return dateKeyOf(new Date());
+}
+
+function tradingDayStatus(dateString) {
+  const date = new Date(`${dateString}T00:00:00`);
+  const week = date.getDay();
+  const weekend = week === 0 || week === 6;
+  const holiday = marketHolidayLabel(dateString);
+  return {
+    weekend,
+    holiday,
+    trading: !weekend && !holiday
+  };
+}
+
+function completedTradingRows(rows = pnlRowsSorted()) {
+  if (!rows.length) return [];
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  const latest = rows[rows.length - 1];
+  const start = new Date(`${rows[0].date}T00:00:00`);
+  const end = new Date(`${latest.date}T00:00:00`);
+  const result = [];
+  let previous = null;
+  for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    const key = dateKeyOf(cursor);
+    const status = tradingDayStatus(key);
+    if (!status.trading) continue;
+    const row = byDate.get(key);
+    if (row) {
+      previous = row;
+      result.push(row);
+      continue;
+    }
+    result.push({
+      date: key,
+      value: 0,
+      totalValue: previous?.totalValue ?? latest.totalValue,
+      marketValue: previous?.marketValue ?? latest.marketValue,
+      cash: previous?.cash ?? latest.cash,
+      realizedPnl: previous?.realizedPnl ?? 0,
+      unrealizedPnl: previous?.unrealizedPnl ?? latest.unrealizedPnl,
+      hasData: false,
+      synthetic: true
+    });
+  }
+  return result;
+}
+
+function latestCumulativePnl(rows) {
+  const last = rows.filter((row) => row.hasData !== false).at(-1) || rows.at(-1);
+  return Number(last?.unrealizedPnl || 0);
+}
+
 function pnlSeries() {
-  const rows = pnlRowsSorted();
+  const rows = completedTradingRows();
   if (!rows.length) return [];
   if (state.pnlPeriod === "day") {
     return rows.map((row) => ({
@@ -782,7 +854,7 @@ function pnlSeries() {
       totalValue: row.totalValue,
       marketValue: row.marketValue,
       cash: row.cash,
-      hasData: true
+      hasData: row.hasData !== false
     }));
   }
 
@@ -793,15 +865,16 @@ function pnlSeries() {
       const year = Number(row.date.slice(0, 4));
       if (year !== latestYear) return;
       const month = Number(row.date.slice(5, 7));
-      grouped.set(month, (grouped.get(month) || 0) + row.value);
+      if (row.hasData !== false) grouped.set(month, row);
     });
     return Array.from({ length: 12 }, (_, idx) => {
       const month = idx + 1;
       const hasData = grouped.has(month);
+      const row = grouped.get(month);
       return {
         key: `${latestYear}-${String(month).padStart(2, "0")}`,
         label: `${latestYear}/${String(month).padStart(2, "0")}`,
-        value: hasData ? grouped.get(month) : 0,
+        value: hasData ? Number(row.unrealizedPnl || 0) : 0,
         hasData
       };
     });
@@ -810,12 +883,12 @@ function pnlSeries() {
   const grouped = new Map();
   rows.forEach((row) => {
     const year = row.date.slice(0, 4);
-    grouped.set(year, (grouped.get(year) || 0) + row.value);
+    if (row.hasData !== false) grouped.set(year, row);
   });
-  return Array.from(grouped, ([year, value]) => ({
+  return Array.from(grouped, ([year, row]) => ({
     key: year,
     label: year,
-    value,
+    value: Number(row.unrealizedPnl || 0),
     hasData: true
   })).sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -911,15 +984,16 @@ function monthPnlCards(rows, year) {
   rows.forEach((row) => {
     if (Number(row.date.slice(0, 4)) !== year) return;
     const month = Number(row.date.slice(5, 7));
-    grouped.set(month, (grouped.get(month) || 0) + row.value);
+    if (row.hasData !== false) grouped.set(month, row);
   });
   return Array.from({ length: 12 }, (_, idx) => {
     const month = idx + 1;
     const hasData = grouped.has(month);
+    const row = grouped.get(month);
     return {
       key: `${year}-${String(month).padStart(2, "0")}`,
       label: `${month}月`,
-      value: hasData ? grouped.get(month) : 0,
+      value: hasData ? Number(row.unrealizedPnl || 0) : 0,
       hasData
     };
   });
@@ -929,13 +1003,13 @@ function yearPnlCards(rows) {
   const grouped = new Map();
   rows.forEach((row) => {
     const year = row.date.slice(0, 4);
-    grouped.set(year, (grouped.get(year) || 0) + row.value);
+    if (row.hasData !== false) grouped.set(year, row);
   });
   if (!grouped.size) grouped.set(String(new Date().getFullYear()), 0);
-  return Array.from(grouped, ([year, value]) => ({
+  return Array.from(grouped, ([year, row]) => ({
     key: year,
     label: `${year}年`,
-    value,
+    value: Number(row.unrealizedPnl || 0),
     hasData: rows.some((row) => row.date.startsWith(year))
   })).sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -952,7 +1026,8 @@ function renderPeriodCalendar(rows) {
     const year = selectedCalendarYear(rows);
     if (title) title.textContent = `${year}年 月收益`;
     const cards = monthPnlCards(rows, year);
-    const annual = cards.reduce((sum, row) => sum + (row.hasData ? row.value : 0), 0);
+    const annualRows = rows.filter((row) => row.date.startsWith(String(year)));
+    const annual = latestCumulativePnl(annualRows);
     container.className = "pnl-calendar pnl-period-grid month-grid";
     container.innerHTML = cards.map((row, idx) => {
       const month = idx + 1;
@@ -980,7 +1055,7 @@ function renderPeriodCalendar(rows) {
   if (state.pnlPeriod === "year") {
     if (title) title.textContent = "年度收益";
     const cards = yearPnlCards(rows);
-    const total = cards.reduce((sum, row) => sum + (row.hasData ? row.value : 0), 0);
+    const total = latestCumulativePnl(rows);
     container.className = "pnl-calendar pnl-period-grid year-grid";
     container.innerHTML = cards.map((row) => {
       const cls = ["period-card", row.hasData ? periodTone(row.value) : "no-record"].join(" ");
@@ -999,7 +1074,7 @@ function renderPeriodCalendar(rows) {
 function renderPnlCalendar() {
   const container = document.getElementById("pnlCalendar");
   const title = document.getElementById("pnlCalendarTitle");
-  const rows = pnlRowsSorted();
+  const rows = completedTradingRows();
   if (state.pnlPeriod !== "day") {
     renderPeriodCalendar(rows);
     return;
@@ -1025,32 +1100,31 @@ function renderPnlCalendar() {
   for (let i = 0; i < leading; i += 1) cells.push(`<div class="calendar-empty"></div>`);
   for (let day = 1; day <= days; day += 1) {
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const value = byDate.get(date)?.value;
+    const row = byDate.get(date);
+    const value = row?.value;
     const week = new Date(year, month - 1, day).getDay();
     const weekend = week === 0 || week === 6;
     if (weekend) continue;
     const holiday = marketHolidayLabel(date);
     const future = date > todayKey;
     const cls = [
-      value === undefined ? "" : value >= 0 ? "gain-bg" : "loss-bg",
+      row ? periodTone(value) : "",
       weekend ? "non-trading" : "",
       holiday ? "holiday" : "",
       future ? "future-day" : "",
       date === todayKey ? "today" : ""
     ].filter(Boolean).join(" ");
-    const note = holiday || (weekend ? "周末休市" : future ? "未到日期" : value === undefined ? "无记录" : "交易日");
+    const note = holiday || (weekend ? "周末休市" : future ? "未到日期" : !row ? "无记录" : row.hasData === false ? "补齐记录" : "交易日");
     cells.push(`
       <button class="${cls}" title="${fullDateLabel(date)} ${note}">
         <b>${day}</b>
-        <span>${value === undefined ? "--" : tableMoney(value)}</span>
+        <span>${row ? periodValueText(value, true) : "--"}</span>
         <small>${note}</small>
       </button>
     `);
   }
   container.innerHTML = cells.join("");
-  const monthTotal = rows
-    .filter((row) => row.date.startsWith(currentMonth))
-    .reduce((sum, row) => sum + row.value, 0);
+  const monthTotal = latestCumulativePnl(rows.filter((row) => row.date.startsWith(currentMonth)));
   renderCalendarSummary(`${year}年${String(month).padStart(2, "0")}月收益`, monthTotal);
 }
 
@@ -1648,7 +1722,7 @@ function updateAssetTrendSelection(event) {
   if (!canvas || !points.length) return;
   const source = event.touches?.[0] || event.changedTouches?.[0] || event;
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
+  const scaleX = (canvas._chartCssWidth || rect.width) / rect.width;
   const x = (source.clientX - rect.left) * scaleX;
   let nearestIndex = 0;
   let nearestDistance = Infinity;
@@ -1669,7 +1743,7 @@ function updateReturnSelection(event) {
   if (!canvas || !points.length || state.pnlView === "calendar") return;
   const source = event.touches?.[0] || event.changedTouches?.[0] || event;
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
+  const scaleX = (canvas._chartCssWidth || rect.width) / rect.width;
   const x = (source.clientX - rect.left) * scaleX;
   let nearestIndex = 0;
   let nearestDistance = Infinity;
