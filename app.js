@@ -1115,10 +1115,11 @@ function renderPnlCalendar() {
       date === todayKey ? "today" : ""
     ].filter(Boolean).join(" ");
     const note = holiday || (weekend ? "周末休市" : future ? "未到日期" : !row ? "无记录" : row.hasData === false ? "补齐记录" : "交易日");
+    const displayValue = holiday ? "休市" : future ? "待更新" : row ? periodValueText(value, true) : "无记录";
     cells.push(`
       <button class="${cls}" title="${fullDateLabel(date)} ${note}">
         <b>${day}</b>
-        <span>${row ? periodValueText(value, true) : "--"}</span>
+        <span>${displayValue}</span>
         <small>${note}</small>
       </button>
     `);

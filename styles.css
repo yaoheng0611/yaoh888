@@ -4109,6 +4109,13 @@ html[data-theme="light"] .donut::after {
   );
 }
 
+.return-panel .pnl-calendar button.holiday span,
+.return-panel .pnl-calendar button.future-day span {
+  color: var(--text-tertiary);
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
 .return-panel .pnl-calendar button.today,
 .return-panel .period-card.today {
   outline: 2px solid rgba(93, 139, 255, 0.72);
