@@ -964,6 +964,117 @@ function replaceState(input) {
   }
 }
 
+function onlineSyncConfig() {
+  const explicit = String(process.env.ONLINE_AUTO_SYNC || "").trim().toLowerCase();
+  const isRender = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL);
+  const isLocalPort = String(port) === "5173";
+  const defaultEnabled = !isRender && isLocalPort;
+  const enabled = explicit ? !["0", "false", "off", "no"].includes(explicit) : defaultEnabled;
+  const intervalSeconds = Math.max(60, Number(process.env.ONLINE_SYNC_INTERVAL_SECONDS || 300));
+  const baseUrl = String(process.env.ONLINE_SYNC_URL || "https://yaoh888.onrender.com").replace(/\/+$/, "");
+  return { enabled, intervalSeconds, baseUrl };
+}
+
+function onlineStatePayload() {
+  const accounts = cashAccounts();
+  return {
+    generatedAt: new Date().toISOString(),
+    holdings: holdings().map((item) => ({
+      market: item.market,
+      name: item.name,
+      ticker: item.ticker,
+      qty: item.qty,
+      cost: item.cost,
+      price: item.price,
+      currency: item.currency
+    })),
+    cashAccounts: {
+      ashare: accounts.ashare.amount,
+      hk: accounts.hk.amount,
+      us: accounts.us.amount
+    },
+    transactions: transactions(1000),
+    pnlCalendar: pnlCalendar()
+  };
+}
+
+function onlineDayPnlByMarket() {
+  return enrichHoldings().reduce((sum, item) => {
+    sum[item.market] = Number(((sum[item.market] || 0) + Number(item.dayPnlNative || 0)).toFixed(2));
+    return sum;
+  }, {});
+}
+
+async function postJson(url, data) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    const text = await response.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!response.ok) throw new Error(body.error || `${response.status} ${response.statusText}`);
+    return body;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+let onlineSyncInFlight = false;
+let onlineSyncQueued = null;
+
+async function syncOnlineState(reason = "manual") {
+  const config = onlineSyncConfig();
+  if (!config.enabled) return { skipped: true, reason: "disabled" };
+  if (onlineSyncInFlight) return { skipped: true, reason: "in_flight" };
+
+  onlineSyncInFlight = true;
+  try {
+    const payload = onlineStatePayload();
+    await postJson(`${config.baseUrl}/api/state/replace`, payload);
+    await postJson(`${config.baseUrl}/api/holdings/replace`, {
+      holdings: payload.holdings,
+      cashAccounts: payload.cashAccounts,
+      dayPnlByMarket: onlineDayPnlByMarket()
+    });
+    const syncedAt = new Date().toISOString();
+    setSetting("lastOnlineSyncAt", syncedAt);
+    setSetting("lastOnlineSyncStatus", `ok:${reason}`);
+    console.log(`Online sync ok (${reason}) -> ${config.baseUrl}`);
+    return { ok: true, syncedAt, target: config.baseUrl };
+  } catch (error) {
+    setSetting("lastOnlineSyncStatus", `failed:${error.message || error}`);
+    console.error(`Online sync failed (${reason}):`, error.message || error);
+    throw error;
+  } finally {
+    onlineSyncInFlight = false;
+  }
+}
+
+function queueOnlineSync(reason = "changed") {
+  const config = onlineSyncConfig();
+  if (!config.enabled || onlineSyncQueued) return;
+  onlineSyncQueued = setTimeout(() => {
+    onlineSyncQueued = null;
+    syncOnlineState(reason).catch(() => {});
+  }, 3000);
+}
+
+function scheduleOnlineSync() {
+  const config = onlineSyncConfig();
+  if (!config.enabled) {
+    console.log("Online sync disabled");
+    return;
+  }
+  console.log(`Online sync enabled: ${config.baseUrl}, every ${config.intervalSeconds}s`);
+  setTimeout(() => syncOnlineState("startup").catch(() => {}), 5000);
+  setInterval(() => syncOnlineState("interval").catch(() => {}), config.intervalSeconds * 1000);
+}
+
 function normalizeTrade(input) {
   const holding = normalizeHolding({
     market: input.market,
@@ -1447,6 +1558,7 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && url.pathname === "/api/holdings") {
       const input = JSON.parse(await readBody(req));
       const id = insertHolding(normalizeHolding(input));
+      queueOnlineSync("holding-create");
       sendJson(res, 201, { id, ...dashboard() });
       return true;
     }
@@ -1467,6 +1579,7 @@ async function handleApi(req, res, url) {
         cashAccounts();
       }
       if (input.dayPnlByMarket) saveDayPnlSnapshotByMarket(input.dayPnlByMarket);
+      queueOnlineSync("holdings-replace");
       sendJson(res, 200, dashboard());
       return true;
     }
@@ -1474,12 +1587,14 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && url.pathname === "/api/state/replace") {
       const input = JSON.parse(await readBody(req));
       replaceState(input);
+      queueOnlineSync("state-replace");
       sendJson(res, 200, dashboard());
       return true;
     }
 
     if (req.method === "DELETE" && url.pathname === "/api/holdings") {
       replaceHoldings([]);
+      queueOnlineSync("holdings-clear");
       sendJson(res, 200, dashboard());
       return true;
     }
@@ -1487,6 +1602,7 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && url.pathname === "/api/cash") {
       const input = JSON.parse(await readBody(req));
       adjustCashAccount(input);
+      queueOnlineSync("cash");
       sendJson(res, 200, dashboard());
       return true;
     }
@@ -1495,12 +1611,14 @@ async function handleApi(req, res, url) {
     if (holdingMatch && req.method === "PUT") {
       const input = JSON.parse(await readBody(req));
       updateHolding(Number(holdingMatch[1]), normalizeHolding(input));
+      queueOnlineSync("holding-update");
       sendJson(res, 200, dashboard());
       return true;
     }
 
     if (holdingMatch && req.method === "DELETE") {
       deleteHolding(Number(holdingMatch[1]));
+      queueOnlineSync("holding-delete");
       sendJson(res, 200, dashboard());
       return true;
     }
@@ -1509,6 +1627,7 @@ async function handleApi(req, res, url) {
       const text = await readBody(req);
       const rows = parseCsv(text);
       rows.forEach(insertHolding);
+      queueOnlineSync("import");
       sendJson(res, 201, { imported: rows.length, ...dashboard() });
       return true;
     }
@@ -1516,6 +1635,7 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && url.pathname === "/api/transactions") {
       const input = JSON.parse(await readBody(req));
       applyTrade(input);
+      queueOnlineSync("transaction-create");
       sendJson(res, 201, dashboard());
       return true;
     }
@@ -1524,19 +1644,27 @@ async function handleApi(req, res, url) {
     if (transactionMatch && req.method === "PUT") {
       const input = JSON.parse(await readBody(req));
       updateTransaction(Number(transactionMatch[1]), input);
+      queueOnlineSync("transaction-update");
       sendJson(res, 200, dashboard());
       return true;
     }
 
     if (transactionMatch && req.method === "DELETE") {
       deleteTransaction(Number(transactionMatch[1]));
+      queueOnlineSync("transaction-delete");
       sendJson(res, 200, dashboard());
       return true;
     }
 
     if (req.method === "POST" && url.pathname === "/api/refresh") {
       await refreshQuotes();
+      queueOnlineSync("quote-refresh");
       sendJson(res, 200, dashboard());
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/sync/online") {
+      sendJson(res, 200, await syncOnlineState("manual"));
       return true;
     }
 
@@ -1602,4 +1730,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, () => {
   console.log(`Investment dashboard: http://localhost:${port}`);
+  scheduleOnlineSync();
 });
