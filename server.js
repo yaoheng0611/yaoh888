@@ -325,15 +325,31 @@ function enrichHoldings(rows = holdings()) {
   });
 }
 
-function groupSummary(rows, market) {
+function realizedPnlByMarket() {
+  const totals = new Map();
+  db.prepare(`
+    SELECT market, currency, COALESCE(SUM(realized_pnl), 0) AS realized_pnl
+    FROM transactions
+    GROUP BY market, currency
+  `).all().forEach((row) => {
+    const value = currencyToCny(Number(row.realized_pnl || 0), row.currency);
+    totals.set(row.market, (totals.get(row.market) || 0) + value);
+  });
+  return totals;
+}
+
+function groupSummary(rows, market, realizedPnl = 0) {
   const items = rows.filter((item) => item.market === market);
   const nativeMarketValue = items.reduce((sum, item) => sum + (Number(item.qty) * Number(item.price)), 0);
+  const unrealizedPnl = items.reduce((sum, item) => sum + item.totalPnl, 0);
   return {
     count: items.length,
     marketValue: Number(currencyToCny(nativeMarketValue, items[0]?.currency || "CNY").toFixed(2)),
     dayPnl: Number(items.reduce((sum, item) => sum + item.dayPnl, 0).toFixed(2)),
     dayPnlRate: Number(((items.reduce((sum, item) => sum + item.dayPnl, 0) / Math.max(items.reduce((sum, item) => sum + item.dayBaseValue, 0), 1)) * 100).toFixed(2)),
-    totalPnl: Number(items.reduce((sum, item) => sum + item.totalPnl, 0).toFixed(2))
+    unrealizedPnl: Number(unrealizedPnl.toFixed(2)),
+    realizedPnl: Number(realizedPnl.toFixed(2)),
+    totalPnl: Number((unrealizedPnl + realizedPnl).toFixed(2))
   };
 }
 
@@ -679,20 +695,26 @@ function advisorPayload(question = "") {
   const enriched = enrichHoldings();
   const accounts = cashAccounts();
   const cash = accounts.totalCny;
+  const realized = realizedPnlByMarket();
+  const ashareSummary = groupSummary(enriched, "A股", realized.get("A股") || 0);
+  const hkSummary = groupSummary(enriched, "港股", realized.get("港股") || 0);
+  const usSummary = groupSummary(enriched, "美股", realized.get("美股") || 0);
   return {
     generatedAt: new Date().toISOString(),
     cash,
     cashAccounts: accounts,
     cashAdjustments: cashAdjustments(),
     summaries: {
-      ashare: groupSummary(enriched, "A股"),
-      hk: groupSummary(enriched, "港股"),
-      us: groupSummary(enriched, "美股"),
+      ashare: ashareSummary,
+      hk: hkSummary,
+      us: usSummary,
       total: {
         marketValue: portfolioMarketValue(enriched),
         dayPnl: Number(enriched.reduce((sum, item) => sum + item.dayPnl, 0).toFixed(2)),
         dayPnlRate: Number(((enriched.reduce((sum, item) => sum + item.dayPnl, 0) / Math.max(enriched.reduce((sum, item) => sum + item.dayBaseValue, 0), 1)) * 100).toFixed(2)),
-        totalPnl: Number(enriched.reduce((sum, item) => sum + item.totalPnl, 0).toFixed(2))
+        unrealizedPnl: Number((ashareSummary.unrealizedPnl + hkSummary.unrealizedPnl + usSummary.unrealizedPnl).toFixed(2)),
+        realizedPnl: Number((ashareSummary.realizedPnl + hkSummary.realizedPnl + usSummary.realizedPnl).toFixed(2)),
+        totalPnl: Number((ashareSummary.totalPnl + hkSummary.totalPnl + usSummary.totalPnl).toFixed(2))
       }
     },
     holdings: enriched.map((item) => ({
@@ -773,20 +795,26 @@ function dashboard() {
   const accounts = cashAccounts();
   const cash = accounts.totalCny;
   const marketValue = portfolioMarketValue(enriched);
+  const realized = realizedPnlByMarket();
+  const ashareSummary = groupSummary(enriched, "A股", realized.get("A股") || 0);
+  const hkSummary = groupSummary(enriched, "港股", realized.get("港股") || 0);
+  const usSummary = groupSummary(enriched, "美股", realized.get("美股") || 0);
   return {
     cash,
     cashAccounts: accounts,
     cashAdjustments: cashAdjustments(),
     holdings: enriched,
     summaries: {
-      ashare: groupSummary(enriched, "A股"),
-      hk: groupSummary(enriched, "港股"),
-      us: groupSummary(enriched, "美股"),
+      ashare: ashareSummary,
+      hk: hkSummary,
+      us: usSummary,
       total: {
         marketValue: Number(marketValue.toFixed(2)),
         dayPnl: Number(enriched.reduce((sum, item) => sum + item.dayPnl, 0).toFixed(2)),
         dayPnlRate: Number(((enriched.reduce((sum, item) => sum + item.dayPnl, 0) / Math.max(enriched.reduce((sum, item) => sum + item.dayBaseValue, 0), 1)) * 100).toFixed(2)),
-        totalPnl: Number(enriched.reduce((sum, item) => sum + item.totalPnl, 0).toFixed(2))
+        unrealizedPnl: Number((ashareSummary.unrealizedPnl + hkSummary.unrealizedPnl + usSummary.unrealizedPnl).toFixed(2)),
+        realizedPnl: Number((ashareSummary.realizedPnl + hkSummary.realizedPnl + usSummary.realizedPnl).toFixed(2)),
+        totalPnl: Number((ashareSummary.totalPnl + hkSummary.totalPnl + usSummary.totalPnl).toFixed(2))
       }
     },
     transactions: transactions(),

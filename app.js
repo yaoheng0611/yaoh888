@@ -131,7 +131,7 @@ function totals() {
   const invested = state.holdings.reduce((sum, item) => sum + cnyValue(item, true), 0);
   const market = Number(state.summaries?.total?.marketValue ?? state.holdings.reduce((sum, item) => sum + cnyValue(item), 0));
   const total = market + state.cash;
-  const pnl = market - invested;
+  const pnl = Number(state.summaries?.total?.totalPnl ?? (market - invested));
   const daily = state.holdings.reduce((sum, item) => sum + Number(item.dayPnl || 0), 0);
   const dayBase = state.holdings.reduce((sum, item) => sum + Number(item.dayBaseValue || (cnyValue(item) - Number(item.dayPnl || 0))), 0);
   return { invested, market, total, pnl, daily, dayBase };
@@ -372,9 +372,10 @@ function updateMetrics() {
   const byMarket = (market) => {
     const items = state.holdings.filter((h) => h.market === market);
     const summaryKey = market === "A股" ? "ashare" : market === "港股" ? "hk" : "us";
+    const summary = state.summaries?.[summaryKey];
     const marketValue = Number(state.summaries?.[summaryKey]?.marketValue ?? items.reduce((sum, h) => sum + Number(h.marketValue ?? cnyValue(h)), 0));
     const invested = items.reduce((sum, h) => sum + cnyValue(h, true), 0);
-    const pnl = items.reduce((sum, h) => sum + Number(h.totalPnl ?? 0), 0);
+    const pnl = Number(summary?.totalPnl ?? items.reduce((sum, h) => sum + Number(h.totalPnl ?? 0), 0));
     const dayPnl = items.reduce((sum, h) => sum + Number(h.dayPnl ?? 0), 0);
     const dayBase = items.reduce((sum, h) => sum + Number(h.dayBaseValue ?? 0), 0);
     return {
@@ -770,11 +771,17 @@ function renderAssetTrendDetail(index = null) {
 }
 
 function pnlRowsSorted() {
+  const transactions = (state.transactions || [])
+    .filter((row) => row.tradeDate)
+    .slice()
+    .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  let transactionIndex = 0;
+  let cumulativeRealizedPnl = 0;
   return (state.pnlCalendar || [])
     .filter((row) => row.date)
     .map((row) => ({
       date: row.date,
-      value: Number(row.dayPnl || 0),
+      rawDayPnl: Number(row.dayPnl || 0),
       totalValue: Number(row.totalValue || 0),
       marketValue: Number(row.marketValue || 0),
       cash: Number(row.cash || 0),
@@ -782,7 +789,24 @@ function pnlRowsSorted() {
       unrealizedPnl: Number(row.unrealizedPnl || 0),
       hasData: true
     }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((row) => {
+      while (transactionIndex < transactions.length && transactions[transactionIndex].tradeDate <= row.date) {
+        const trade = transactions[transactionIndex];
+        const realized = Number(trade.realizedPnl || 0);
+        cumulativeRealizedPnl += trade.currency === "USD"
+          ? realized * FX
+          : trade.currency === "HKD"
+            ? realized * HKD_FX
+            : realized;
+        transactionIndex += 1;
+      }
+      return {
+        ...row,
+        cumulativeRealizedPnl,
+        cumulativePnl: row.unrealizedPnl + cumulativeRealizedPnl
+      };
+    });
 }
 
 function dateKeyOf(date) {
@@ -813,14 +837,21 @@ function completedTradingRows(rows = pnlRowsSorted()) {
   const end = new Date(`${latest.date}T00:00:00`);
   const result = [];
   let previous = null;
+  let previousCumulativePnl = 0;
   for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
     const key = dateKeyOf(cursor);
     const status = tradingDayStatus(key);
     if (!status.trading) continue;
     const row = byDate.get(key);
     if (row) {
-      previous = row;
-      result.push(row);
+      const cumulativePnl = Number(row.cumulativePnl || 0);
+      const normalized = {
+        ...row,
+        value: cumulativePnl - previousCumulativePnl
+      };
+      previous = normalized;
+      previousCumulativePnl = cumulativePnl;
+      result.push(normalized);
       continue;
     }
     result.push({
@@ -831,6 +862,8 @@ function completedTradingRows(rows = pnlRowsSorted()) {
       cash: previous?.cash ?? latest.cash,
       realizedPnl: previous?.realizedPnl ?? 0,
       unrealizedPnl: previous?.unrealizedPnl ?? latest.unrealizedPnl,
+      cumulativeRealizedPnl: previous?.cumulativeRealizedPnl ?? 0,
+      cumulativePnl: previousCumulativePnl,
       hasData: false,
       synthetic: true
     });
