@@ -838,9 +838,11 @@ function completedTradingRows(rows = pnlRowsSorted()) {
   return result;
 }
 
-function latestCumulativePnl(rows) {
-  const last = rows.filter((row) => row.hasData !== false).at(-1) || rows.at(-1);
-  return Number(last?.unrealizedPnl || 0);
+function sumPeriodPnl(rows) {
+  return rows.reduce(
+    (sum, row) => sum + (row.hasData === false ? 0 : Number(row.value || 0)),
+    0
+  );
 }
 
 function pnlSeries() {
@@ -865,30 +867,31 @@ function pnlSeries() {
       const year = Number(row.date.slice(0, 4));
       if (year !== latestYear) return;
       const month = Number(row.date.slice(5, 7));
-      if (row.hasData !== false) grouped.set(month, row);
+      if (row.hasData === false) return;
+      grouped.set(month, (grouped.get(month) || 0) + Number(row.value || 0));
     });
     return Array.from({ length: 12 }, (_, idx) => {
       const month = idx + 1;
       const hasData = grouped.has(month);
-      const row = grouped.get(month);
       return {
         key: `${latestYear}-${String(month).padStart(2, "0")}`,
         label: `${latestYear}/${String(month).padStart(2, "0")}`,
-        value: hasData ? Number(row.unrealizedPnl || 0) : 0,
+        value: hasData ? grouped.get(month) : 0,
         hasData
       };
-    });
+    }).filter((row) => row.hasData);
   }
 
   const grouped = new Map();
   rows.forEach((row) => {
     const year = row.date.slice(0, 4);
-    if (row.hasData !== false) grouped.set(year, row);
+    if (row.hasData === false) return;
+    grouped.set(year, (grouped.get(year) || 0) + Number(row.value || 0));
   });
-  return Array.from(grouped, ([year, row]) => ({
+  return Array.from(grouped, ([year, value]) => ({
     key: year,
     label: year,
-    value: Number(row.unrealizedPnl || 0),
+    value,
     hasData: true
   })).sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -984,16 +987,16 @@ function monthPnlCards(rows, year) {
   rows.forEach((row) => {
     if (Number(row.date.slice(0, 4)) !== year) return;
     const month = Number(row.date.slice(5, 7));
-    if (row.hasData !== false) grouped.set(month, row);
+    if (row.hasData === false) return;
+    grouped.set(month, (grouped.get(month) || 0) + Number(row.value || 0));
   });
   return Array.from({ length: 12 }, (_, idx) => {
     const month = idx + 1;
     const hasData = grouped.has(month);
-    const row = grouped.get(month);
     return {
       key: `${year}-${String(month).padStart(2, "0")}`,
       label: `${month}月`,
-      value: hasData ? Number(row.unrealizedPnl || 0) : 0,
+      value: hasData ? grouped.get(month) : 0,
       hasData
     };
   });
@@ -1003,13 +1006,14 @@ function yearPnlCards(rows) {
   const grouped = new Map();
   rows.forEach((row) => {
     const year = row.date.slice(0, 4);
-    if (row.hasData !== false) grouped.set(year, row);
+    if (row.hasData === false) return;
+    grouped.set(year, (grouped.get(year) || 0) + Number(row.value || 0));
   });
   if (!grouped.size) grouped.set(String(new Date().getFullYear()), 0);
-  return Array.from(grouped, ([year, row]) => ({
+  return Array.from(grouped, ([year, value]) => ({
     key: year,
     label: `${year}年`,
-    value: Number(row.unrealizedPnl || 0),
+    value,
     hasData: rows.some((row) => row.date.startsWith(year))
   })).sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -1026,8 +1030,7 @@ function renderPeriodCalendar(rows) {
     const year = selectedCalendarYear(rows);
     if (title) title.textContent = `${year}年 月收益`;
     const cards = monthPnlCards(rows, year);
-    const annualRows = rows.filter((row) => row.date.startsWith(String(year)));
-    const annual = latestCumulativePnl(annualRows);
+    const annual = cards.reduce((sum, row) => sum + (row.hasData ? row.value : 0), 0);
     container.className = "pnl-calendar pnl-period-grid month-grid";
     container.innerHTML = cards.map((row, idx) => {
       const month = idx + 1;
@@ -1055,7 +1058,7 @@ function renderPeriodCalendar(rows) {
   if (state.pnlPeriod === "year") {
     if (title) title.textContent = "年度收益";
     const cards = yearPnlCards(rows);
-    const total = latestCumulativePnl(rows);
+    const total = cards.reduce((sum, row) => sum + (row.hasData ? row.value : 0), 0);
     container.className = "pnl-calendar pnl-period-grid year-grid";
     container.innerHTML = cards.map((row) => {
       const cls = ["period-card", row.hasData ? periodTone(row.value) : "no-record"].join(" ");
@@ -1125,7 +1128,7 @@ function renderPnlCalendar() {
     `);
   }
   container.innerHTML = cells.join("");
-  const monthTotal = latestCumulativePnl(rows.filter((row) => row.date.startsWith(currentMonth)));
+  const monthTotal = sumPeriodPnl(rows.filter((row) => row.date.startsWith(currentMonth)));
   renderCalendarSummary(`${year}年${String(month).padStart(2, "0")}月收益`, monthTotal);
 }
 
