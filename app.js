@@ -658,12 +658,28 @@ function drawLineChart(canvasId, series, lines, formatter, options = {}) {
   });
 
   if (lines?.length) {
-    lines.forEach((label, idx) => {
-      if (!label) return;
-      const x = pad.left + ((width - pad.left - pad.right) / Math.max(lines.length - 1, 1)) * idx;
-      ctx.fillStyle = theme.label;
-      ctx.fillText(label, Math.max(4, Math.min(x - 32, width - 84)), height - 8);
+    const candidates = lines
+      .map((label, idx) => {
+        if (!label) return null;
+        const x = pad.left + ((width - pad.left - pad.right) / Math.max(lines.length - 1, 1)) * idx;
+        const textWidth = ctx.measureText(label).width;
+        const left = Math.max(4, Math.min(x - textWidth / 2, width - textWidth - 4));
+        return { label, idx, left, right: left + textWidth };
+      })
+      .filter(Boolean);
+    const visible = [];
+    candidates.forEach((candidate, candidateIndex) => {
+      const isLast = candidateIndex === candidates.length - 1;
+      if (isLast) {
+        while (visible.length > 1 && visible[visible.length - 1].right + 14 > candidate.left) visible.pop();
+        visible.push(candidate);
+        return;
+      }
+      const previous = visible[visible.length - 1];
+      if (!previous || previous.right + 14 <= candidate.left) visible.push(candidate);
     });
+    ctx.fillStyle = theme.label;
+    visible.forEach(({ label, left }) => ctx.fillText(label, left, height - 8));
   }
 
   if (options.selectedIndex !== null && options.selectedIndex !== undefined && chartPoints[options.selectedIndex]) {
