@@ -11,27 +11,28 @@
         document.documentElement.dataset.theme = saved || preferred;
       })();
     </script>
-    <link rel="stylesheet" href="styles.css?v=command-center-20260710" />
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
+    <link rel="stylesheet" href="styles.css?v=tri-market-cockpit-20260713" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
-          <div class="brand-mark">▥</div>
+          <div class="brand-mark"><i class="ph ph-chart-donut" aria-hidden="true"></i></div>
           <div class="brand-text">YaoH的军情室</div>
         </div>
 
         <nav class="nav-list">
-          <button class="nav-item active" data-scroll="overview"><span>⌂</span> 首页总览</button>
-          <button class="nav-item" data-scroll="aHoldings"><span>〽</span> A股持仓</button>
-          <button class="nav-item" data-scroll="hkHoldings"><span>▦</span> 港股持仓</button>
-          <button class="nav-item" data-scroll="usHoldings"><span>▥</span> 美股持仓</button>
-          <button class="nav-item" data-scroll="watchlistPanel"><span>♡</span> 自选观察</button>
-          <button class="nav-item" data-scroll="allocationPanel"><span>▤</span> 资产分析</button>
-          <button class="nav-item" data-scroll="returnPanel"><span>↗</span> 盈亏分析</button>
-          <button class="nav-item" data-scroll="tradeRecordsPanel"><span>☷</span> 交易记录</button>
-          <button class="nav-item" id="importNav"><span>⇪</span> 数据导入</button>
-          <button class="nav-item"><span>⚙</span> 设置中心</button>
+          <button class="nav-item active" data-scroll="overview"><span><i class="ph ph-squares-four"></i></span> 首页总览</button>
+          <button class="nav-item" data-scroll="aHoldings"><span><i class="ph ph-trend-up"></i></span> A股持仓</button>
+          <button class="nav-item" data-scroll="hkHoldings"><span><i class="ph ph-buildings"></i></span> 港股持仓</button>
+          <button class="nav-item" data-scroll="usHoldings"><span><i class="ph ph-chart-line-up"></i></span> 美股持仓</button>
+          <button class="nav-item" data-scroll="watchlistPanel"><span><i class="ph ph-heart"></i></span> 自选观察</button>
+          <button class="nav-item" data-scroll="allocationPanel"><span><i class="ph ph-chart-pie-slice"></i></span> 资产分析</button>
+          <button class="nav-item" data-scroll="returnPanel"><span><i class="ph ph-wave-sine"></i></span> 盈亏分析</button>
+          <button class="nav-item" data-scroll="tradeRecordsPanel"><span><i class="ph ph-receipt"></i></span> 交易记录</button>
+          <button class="nav-item" id="importNav"><span><i class="ph ph-upload-simple"></i></span> 数据导入</button>
+          <button class="nav-item"><span><i class="ph ph-gear-six"></i></span> 设置中心</button>
         </nav>
 
         <div class="sidebar-footer">
@@ -68,7 +69,7 @@
 
         <section id="overview" class="metric-grid">
           <article class="metric-card">
-            <div class="metric-icon yen">¥</div>
+            <div class="metric-icon yen"><i class="ph ph-currency-cny"></i></div>
             <div>
               <p>总资产（CNY）</p>
               <h2 id="totalAssets">¥ 0.00</h2>
@@ -81,7 +82,7 @@
             </div>
           </article>
           <article class="metric-card">
-            <div class="metric-icon chart">↗</div>
+            <div class="metric-icon chart"><i class="ph ph-arrow-up-right"></i></div>
             <div>
               <p>今日盈亏</p>
               <h2 id="todayPnl">+¥ 0.00</h2>
@@ -94,7 +95,7 @@
             </div>
           </article>
           <article class="metric-card">
-            <div class="metric-icon target">◎</div>
+            <div class="metric-icon target"><i class="ph ph-target"></i></div>
             <div>
               <p>累计收益</p>
               <h2 id="totalPnl">+¥ 0.00</h2>
@@ -107,7 +108,7 @@
             </div>
           </article>
           <article class="metric-card">
-            <div class="metric-icon pie">◔</div>
+            <div class="metric-icon pie"><i class="ph ph-chart-donut"></i></div>
             <div>
               <p>现金占比</p>
               <h2 id="cashRate">0.00%</h2>
@@ -120,7 +121,7 @@
             </div>
           </article>
           <article class="metric-card">
-            <div class="metric-icon wallet">▣</div>
+            <div class="metric-icon wallet"><i class="ph ph-wallet"></i></div>
             <div>
               <p>可用资金</p>
               <h2 id="availableCash">¥ 0.00</h2>
@@ -133,12 +134,48 @@
             </div>
           </article>
           <article class="metric-card quote-card">
-            <div class="metric-icon signal">↻</div>
+            <div class="metric-icon signal"><i class="ph ph-broadcast"></i></div>
             <div>
               <p>行情源状态</p>
               <h2 id="quoteProvider">模拟行情</h2>
               <small><b id="autoRefreshStatus">手动刷新</b> · <span id="quoteLastRefresh">未刷新</span></small>
             </div>
+          </article>
+        </section>
+
+        <section class="market-cockpit" aria-label="三市场驾驶舱">
+          <article class="market-zone market-zone-a" data-scroll="aHoldings">
+            <div class="market-zone-head">
+              <div><span class="market-kicker">CHINA A · LIVE</span><h2>A股战区</h2></div>
+              <span class="market-state"><i class="ph ph-pulse"></i> 行情在线</span>
+            </div>
+            <strong id="cockpitAValue" class="market-value">¥ 0.00</strong>
+            <div class="market-change"><b id="cockpitADay">+¥ 0.00</b><span id="cockpitADayRate">+0.00%</span></div>
+            <div class="market-energy" aria-hidden="true"><i id="cockpitABar"></i></div>
+            <dl><div><dt>可用现金</dt><dd id="cockpitACash">¥ 0.00</dd></div><div><dt>持仓数量</dt><dd id="cockpitACount">0 只</dd></div><div><dt>最大持仓</dt><dd id="cockpitATop">--</dd></div></dl>
+            <button class="market-enter section-jump" data-scroll="aHoldings">查看 A 股持仓 <i class="ph ph-arrow-up-right"></i></button>
+          </article>
+          <article class="market-zone market-zone-hk" data-scroll="hkHoldings">
+            <div class="market-zone-head">
+              <div><span class="market-kicker">HONG KONG · LIVE</span><h2>港股战区</h2></div>
+              <span class="market-state"><i class="ph ph-pulse"></i> 行情在线</span>
+            </div>
+            <strong id="cockpitHkValue" class="market-value">¥ 0.00</strong>
+            <div class="market-change"><b id="cockpitHkDay">+¥ 0.00</b><span id="cockpitHkDayRate">+0.00%</span></div>
+            <div class="market-energy" aria-hidden="true"><i id="cockpitHkBar"></i></div>
+            <dl><div><dt>可用现金</dt><dd id="cockpitHkCash">HK$ 0.00</dd></div><div><dt>持仓数量</dt><dd id="cockpitHkCount">0 只</dd></div><div><dt>最大持仓</dt><dd id="cockpitHkTop">--</dd></div></dl>
+            <button class="market-enter section-jump" data-scroll="hkHoldings">查看港股持仓 <i class="ph ph-arrow-up-right"></i></button>
+          </article>
+          <article class="market-zone market-zone-us" data-scroll="usHoldings">
+            <div class="market-zone-head">
+              <div><span class="market-kicker">UNITED STATES · LIVE</span><h2>美股战区</h2></div>
+              <span class="market-state"><i class="ph ph-pulse"></i> 行情在线</span>
+            </div>
+            <strong id="cockpitUsValue" class="market-value">¥ 0.00</strong>
+            <div class="market-change"><b id="cockpitUsDay">+¥ 0.00</b><span id="cockpitUsDayRate">+0.00%</span></div>
+            <div class="market-energy" aria-hidden="true"><i id="cockpitUsBar"></i></div>
+            <dl><div><dt>可用现金</dt><dd id="cockpitUsCash">¥ 0.00</dd></div><div><dt>持仓数量</dt><dd id="cockpitUsCount">0 只</dd></div><div><dt>最大持仓</dt><dd id="cockpitUsTop">--</dd></div></dl>
+            <button class="market-enter section-jump" data-scroll="usHoldings">查看美股持仓 <i class="ph ph-arrow-up-right"></i></button>
           </article>
         </section>
 
@@ -424,6 +461,6 @@
 
     <input id="csvInput" type="file" accept=".csv,text/csv" hidden />
     <div id="toast" class="toast">行情已刷新</div>
-    <script src="app.js?v=command-center-20260710"></script>
+    <script src="app.js?v=tri-market-cockpit-20260713"></script>
   </body>
 </html>

@@ -450,6 +450,35 @@ function updateMetrics() {
   setText("usValue", money(uValue));
   setText("cashLegend", money(accounts.totalCny));
 
+  const cockpitMarkets = [
+    { key: "A", market: "A股", summary: ashare, cash: money(accounts.ashare.amount, "CNY") },
+    { key: "Hk", market: "港股", summary: hk, cash: money(accounts.hk.amount, "HKD") },
+    { key: "Us", market: "美股", summary: us, cash: money(accounts.us.amount, "CNY") }
+  ];
+  cockpitMarkets.forEach(({ key, market, summary, cash }) => {
+    const holdings = state.holdings.filter((item) => item.market === market);
+    const top = holdings.reduce((best, item) => {
+      const value = Number(item.marketValue ?? cnyValue(item));
+      return !best || value > best.value ? { name: item.name, value } : best;
+    }, null);
+    const magnitude = Math.min(100, Math.max(8, Math.abs(summary.dayRate) * 14 + 24));
+    setText(`cockpit${key}Value`, money(summary.marketValue));
+    setText(`cockpit${key}Day`, `${summary.dayPnl >= 0 ? "+" : ""}${money(summary.dayPnl)}`);
+    setText(`cockpit${key}DayRate`, percent(summary.dayRate));
+    setText(`cockpit${key}Cash`, cash);
+    setText(`cockpit${key}Count`, `${holdings.length} 只`);
+    setText(`cockpit${key}Top`, top?.name || "暂无持仓");
+    const day = document.getElementById(`cockpit${key}Day`);
+    const rate = document.getElementById(`cockpit${key}DayRate`);
+    const bar = document.getElementById(`cockpit${key}Bar`);
+    if (day) day.className = classFor(summary.dayPnl);
+    if (rate) rate.className = classFor(summary.dayPnl);
+    if (bar) {
+      bar.style.setProperty("--market-energy", `${magnitude}%`);
+      bar.classList.toggle("is-loss", summary.dayPnl < 0);
+    }
+  });
+
   const aEnd = (aValue / Math.max(t.total, 1)) * 100;
   const hEnd = aEnd + (hValue / Math.max(t.total, 1)) * 100;
   const uEnd = hEnd + (uValue / Math.max(t.total, 1)) * 100;
@@ -1901,6 +1930,14 @@ document.getElementById("assetChart").addEventListener("mousemove", updateAssetT
 document.getElementById("assetChart").addEventListener("click", updateAssetTrendSelection);
 document.getElementById("assetChart").addEventListener("touchstart", updateAssetTrendSelection, { passive: true });
 document.getElementById("assetChart").addEventListener("touchmove", updateAssetTrendSelection, { passive: true });
+
+document.querySelectorAll(".metric-card, .panel, .market-zone").forEach((surface) => {
+  surface.addEventListener("pointermove", (event) => {
+    const rect = surface.getBoundingClientRect();
+    surface.style.setProperty("--spot-x", `${event.clientX - rect.left}px`);
+    surface.style.setProperty("--spot-y", `${event.clientY - rect.top}px`);
+  });
+});
 document.getElementById("returnChart").addEventListener("mousemove", updateReturnSelection);
 document.getElementById("returnChart").addEventListener("click", updateReturnSelection);
 document.getElementById("returnChart").addEventListener("touchstart", updateReturnSelection, { passive: true });
