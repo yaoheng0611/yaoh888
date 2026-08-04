@@ -393,13 +393,47 @@ function getPreviousPrices() {
   }
 }
 
+function holdingSyncKey(market, ticker) {
+  return `${String(market || "").trim()}::${String(ticker || "").trim().toUpperCase()}`;
+}
+
 function saveDayBasePrices(rows) {
+  const existing = getPreviousPrices();
   const prices = {};
   rows.forEach((item) => {
-    const price = Number(item.previousClose ?? item.price);
+    const previousClose = Number(item.previousClose);
+    const existingPrice = Number(existing.get(String(item.id)));
+    const price = Number.isFinite(previousClose) && previousClose > 0
+      ? previousClose
+      : Number.isFinite(existingPrice) && existingPrice > 0
+        ? existingPrice
+        : Number(item.price);
     if (Number.isFinite(price) && price > 0) prices[String(item.id)] = price;
   });
   setSetting("dayBasePrices", JSON.stringify(prices));
+}
+
+function dayBasePricesByHolding() {
+  const previousPrices = getPreviousPrices();
+  return holdings().reduce((result, item) => {
+    const price = Number(previousPrices.get(String(item.id)));
+    if (Number.isFinite(price) && price > 0) {
+      result[holdingSyncKey(item.market, item.ticker)] = price;
+    }
+    return result;
+  }, {});
+}
+
+function saveDayBasePricesByHolding(dayBasePrices = {}) {
+  if (!dayBasePrices || typeof dayBasePrices !== "object") return false;
+  const prices = {};
+  holdings().forEach((item) => {
+    const price = Number(dayBasePrices[holdingSyncKey(item.market, item.ticker)]);
+    if (Number.isFinite(price) && price > 0) prices[String(item.id)] = price;
+  });
+  if (!Object.keys(prices).length) return false;
+  setSetting("dayBasePrices", JSON.stringify(prices));
+  return true;
 }
 
 function saveDayPnlSnapshotByMarket(dayPnlByMarket = {}) {
@@ -1027,6 +1061,9 @@ function replaceState(input) {
     }
     replaceTransactions(Array.isArray(input.transactions) ? input.transactions : []);
     replaceDailySnapshots(Array.isArray(input.pnlCalendar) ? input.pnlCalendar : []);
+    if (!saveDayBasePricesByHolding(input.dayBasePrices) && input.dayPnlByMarket) {
+      saveDayPnlSnapshotByMarket(input.dayPnlByMarket);
+    }
     cashAccounts();
     db.exec("COMMIT");
   } catch (error) {
@@ -1065,7 +1102,9 @@ function onlineStatePayload() {
       us: accounts.us.amount
     },
     transactions: transactions(1000),
-    pnlCalendar: pnlCalendar()
+    pnlCalendar: pnlCalendar(),
+    dayBasePrices: dayBasePricesByHolding(),
+    dayPnlByMarket: onlineDayPnlByMarket()
   };
 }
 
@@ -1107,11 +1146,6 @@ async function syncOnlineState(reason = "manual") {
   try {
     const payload = onlineStatePayload();
     await postJson(`${config.baseUrl}/api/state/replace`, payload);
-    await postJson(`${config.baseUrl}/api/holdings/replace`, {
-      holdings: payload.holdings,
-      cashAccounts: payload.cashAccounts,
-      dayPnlByMarket: onlineDayPnlByMarket()
-    });
     const syncedAt = new Date().toISOString();
     setSetting("lastOnlineSyncAt", syncedAt);
     setSetting("lastOnlineSyncStatus", `ok:${reason}`);
