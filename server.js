@@ -393,24 +393,57 @@ function getPreviousPrices() {
   }
 }
 
+function getDayBasePriceDates() {
+  try {
+    return new Map(Object.entries(JSON.parse(getSetting("dayBasePriceDates", "{}"))));
+  } catch {
+    return new Map();
+  }
+}
+
+function currentTradingDate(currency) {
+  const timeZone = currency === "USD" ? "America/New_York" : "Asia/Hong_Kong";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function holdingSyncKey(market, ticker) {
   return `${String(market || "").trim()}::${String(ticker || "").trim().toUpperCase()}`;
 }
 
 function saveDayBasePrices(rows) {
   const existing = getPreviousPrices();
+  const existingDates = getDayBasePriceDates();
   const prices = {};
+  const dates = {};
   rows.forEach((item) => {
     const previousClose = Number(item.previousClose);
     const existingPrice = Number(existing.get(String(item.id)));
-    const price = Number.isFinite(previousClose) && previousClose > 0
-      ? previousClose
-      : Number.isFinite(existingPrice) && existingPrice > 0
+    const tradingDate = currentTradingDate(item.currency);
+    const existingDate = existingDates.get(String(item.id));
+    const hasCurrentBase = (!existingDate || existingDate === tradingDate)
+      && Number.isFinite(existingPrice)
+      && existingPrice > 0;
+    const price = hasCurrentBase
+      ? existingPrice
+      : Number.isFinite(previousClose) && previousClose > 0
+        ? previousClose
+        : Number.isFinite(existingPrice) && existingPrice > 0
         ? existingPrice
         : Number(item.price);
-    if (Number.isFinite(price) && price > 0) prices[String(item.id)] = price;
+    if (Number.isFinite(price) && price > 0) {
+      prices[String(item.id)] = price;
+      dates[String(item.id)] = tradingDate;
+    }
   });
   setSetting("dayBasePrices", JSON.stringify(prices));
+  setSetting("dayBasePriceDates", JSON.stringify(dates));
 }
 
 function dayBasePricesByHolding() {
@@ -427,12 +460,17 @@ function dayBasePricesByHolding() {
 function saveDayBasePricesByHolding(dayBasePrices = {}) {
   if (!dayBasePrices || typeof dayBasePrices !== "object") return false;
   const prices = {};
+  const dates = {};
   holdings().forEach((item) => {
     const price = Number(dayBasePrices[holdingSyncKey(item.market, item.ticker)]);
-    if (Number.isFinite(price) && price > 0) prices[String(item.id)] = price;
+    if (Number.isFinite(price) && price > 0) {
+      prices[String(item.id)] = price;
+      dates[String(item.id)] = currentTradingDate(item.currency);
+    }
   });
   if (!Object.keys(prices).length) return false;
   setSetting("dayBasePrices", JSON.stringify(prices));
+  setSetting("dayBasePriceDates", JSON.stringify(dates));
   return true;
 }
 
@@ -448,6 +486,9 @@ function saveDayPnlSnapshotByMarket(dayPnlByMarket = {}) {
     prices[String(item.id)] = Number((Number(item.price) * (1 - rate)).toFixed(6));
   });
   setSetting("dayBasePrices", JSON.stringify(prices));
+  setSetting("dayBasePriceDates", JSON.stringify(Object.fromEntries(
+    rows.map((item) => [String(item.id), currentTradingDate(item.currency)])
+  )));
 }
 
 function transactions(limit = 100) {
@@ -1834,7 +1875,7 @@ async function refreshQuotes(options = {}) {
       retained += 1;
     }
     update.run(nextPrice, item.id);
-    dayBaseRows.push({ id: item.id, price: nextPrice, previousClose });
+    dayBaseRows.push({ id: item.id, price: nextPrice, previousClose, currency: item.currency });
   }
 
   saveDayBasePrices(dayBaseRows);
