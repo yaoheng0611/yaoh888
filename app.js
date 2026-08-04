@@ -494,9 +494,84 @@ function renderQuoteStatus() {
   setText("autoRefreshStatus", state.autoRefresh.enabled ? `${state.autoRefresh.interval}秒自动` : "手动刷新");
 }
 
+function extendedSessionLabel(session) {
+  return ({
+    "pre-market": "盘前",
+    regular: "交易中",
+    "post-market": "盘后"
+  })[session] || "休市";
+}
+
+function extendedStatusLabel(status) {
+  return ({
+    live: "实时",
+    cached: "缓存",
+    delayed: "已延迟"
+  })[status] || "暂无行情";
+}
+
+function renderExtendedCell(item, session) {
+  const sessionLabel = extendedSessionLabel(session);
+  if (session === "regular") {
+    return `<span class="extended-cell is-regular"><b>交易中</b><small>正式行情刷新中</small></span>`;
+  }
+  if (!["pre-market", "post-market"].includes(session)) {
+    return `<span class="extended-cell is-unavailable"><b>休市</b><small>暂无扩展行情</small></span>`;
+  }
+  if (!Number.isFinite(Number(item.extendedPrice))) {
+    return `<span class="extended-cell is-unavailable"><b>${sessionLabel}</b><small>暂无有效报价</small></span>`;
+  }
+
+  const change = Number(item.extendedChange || 0);
+  const changePercent = Number(item.extendedChangePercent || 0);
+  const estimatedPnl = Number(item.extendedEstimatedPnlNative || 0);
+  const updated = item.extendedUpdatedAt
+    ? new Date(item.extendedUpdatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+    : "--:--";
+  return `
+    <span class="extended-cell ${classFor(change)}">
+      <span class="extended-price"><em>${sessionLabel}</em><b>${tableMoney(item.extendedPrice, "USD")}</b></span>
+      <small>${change >= 0 ? "+" : ""}${tableMoney(change, "USD")} · ${percent(changePercent)}</small>
+      <small>预估 ${estimatedPnl >= 0 ? "+" : ""}${tableMoney(estimatedPnl, "USD")} · ${updated} ${extendedStatusLabel(item.extendedStatus)}</small>
+    </span>
+  `;
+}
+
+function renderUsExtendedSummary(group) {
+  const target = document.getElementById("usExtendedSummary");
+  if (!target) return;
+  const extended = state.quoteStatus?.extendedHours || {};
+  const session = extended.session;
+  const label = extendedSessionLabel(session);
+  const updated = extended.updatedAt
+    ? new Date(extended.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+    : "--:--";
+
+  if (session === "regular") {
+    target.innerHTML = `<span class="extended-session is-regular">交易中</span><span>正式行情 · ${updated} 更新</span>`;
+    return;
+  }
+  if (!["pre-market", "post-market"].includes(session)) {
+    const closedText = extended.holiday ? `休市 · ${extended.holiday}` : "休市 · 暂无扩展行情";
+    target.innerHTML = `<span class="extended-session is-closed">休市</span><span>${closedText}</span>`;
+    return;
+  }
+
+  const validRows = group.filter((item) => Number.isFinite(Number(item.extendedPrice)));
+  const estimatedNative = validRows.reduce((sum, item) => sum + Number(item.extendedEstimatedPnlNative || 0), 0);
+  const estimatedCny = validRows.reduce((sum, item) => sum + Number(item.extendedEstimatedPnl || 0), 0);
+  target.innerHTML = `
+    <span class="extended-session">${label}</span>
+    <span class="${classFor(estimatedNative)}">预估 ${estimatedNative >= 0 ? "+" : ""}${tableMoney(estimatedNative, "USD")}</span>
+    <span class="extended-summary-cny">约 ${estimatedCny >= 0 ? "+" : ""}${tableMoney(estimatedCny)} · ${validRows.length}/${group.length}只 · ${updated}</span>
+  `;
+}
+
 function renderHoldings() {
-  const renderGroup = (market, bodyId, footId, countId) => {
+  const renderGroup = (market, bodyId, footId, countId, options = {}) => {
+    const includeExtended = Boolean(options.includeExtended);
     const group = state.holdings.filter((item) => item.market === market);
+    const extendedSession = state.quoteStatus?.extendedHours?.session || null;
     const rows = group.map((item) => {
       const pnl = Number(item.totalPnl ?? (cnyValue(item) - cnyValue(item, true)));
       const dayPnl = Number(item.dayPnl ?? 0);
@@ -512,6 +587,7 @@ function renderHoldings() {
           <td>${tableMoney(item.price, item.currency)}</td>
           <td class="${classFor(pnl)}"><span class="stacked-cell"><b>${pnl >= 0 ? "+" : ""}${tableMoney(pnl)}</b><small>${percent(rate)}</small></span></td>
           <td class="${classFor(dayPnl)}"><span class="stacked-cell"><b>${dayPnl >= 0 ? "+" : ""}${tableMoney(dayPnl)}</b><small>${percent(dayRate)}</small></span></td>
+          ${includeExtended ? `<td>${renderExtendedCell(item, extendedSession)}</td>` : ""}
           <td>
             <div class="row-actions">
               <button type="button" data-action="edit" data-id="${item.id}" title="编辑">&#9998;</button>
@@ -528,7 +604,9 @@ function renderHoldings() {
     const dayBase = group.reduce((sum, item) => sum + Number(item.dayBaseValue ?? 0), 0);
     const dayRate = (dayPnl / Math.max(dayBase, 1)) * 100;
     const rate = (pnl / Math.max(cost, 1)) * 100;
-    document.getElementById(bodyId).innerHTML = rows || `<tr><td colspan="8">暂无持仓</td></tr>`;
+    const extendedQuoteCount = group.filter((item) => Number.isFinite(Number(item.extendedPrice))).length;
+    const extendedPnl = group.reduce((sum, item) => sum + Number(item.extendedEstimatedPnlNative || 0), 0);
+    document.getElementById(bodyId).innerHTML = rows || `<tr><td colspan="${includeExtended ? 9 : 8}">暂无持仓</td></tr>`;
     document.getElementById(footId).innerHTML = `
       <tr>
         <td>${market}总计</td>
@@ -538,14 +616,16 @@ function renderHoldings() {
         <td></td>
         <td class="${classFor(pnl)}"><span class="stacked-cell"><b>${pnl >= 0 ? "+" : ""}${tableMoney(pnl)}</b><small>${percent(rate)}</small></span></td>
         <td class="${classFor(dayPnl)}"><span class="stacked-cell"><b>${dayPnl >= 0 ? "+" : ""}${tableMoney(dayPnl)}</b><small>${percent(dayRate)}</small></span></td>
+        ${includeExtended ? `<td class="${classFor(extendedPnl)}"><span class="stacked-cell"><b>${extendedQuoteCount > 0 && ["pre-market", "post-market"].includes(extendedSession) ? `${extendedPnl >= 0 ? "+" : ""}${tableMoney(extendedPnl, "USD")}` : "—"}</b><small>扩展时段预估</small></span></td>` : ""}
         <td></td>
       </tr>
     `;
     setText(countId, `（${group.length}只）`);
+    if (includeExtended) renderUsExtendedSummary(group);
   };
   renderGroup("A股", "aRows", "aFoot", "aCount");
   renderGroup("港股", "hRows", "hFoot", "hCount");
-  renderGroup("美股", "uRows", "uFoot", "uCount");
+  renderGroup("美股", "uRows", "uFoot", "uCount", { includeExtended: true });
 }
 
 function renderWatchlist() {
@@ -1279,11 +1359,11 @@ function updateTime() {
   setText("sidebarTime", text);
 }
 
-async function refreshData() {
+async function refreshData(forceExtended = false) {
   if (state.autoRefresh.inFlight) return;
   state.autoRefresh.inFlight = true;
   try {
-    applyDashboard(await api("/api/refresh", { method: "POST" }));
+    applyDashboard(await api(`/api/refresh${forceExtended ? "?forceExtended=1" : ""}`, { method: "POST" }));
     updateTime();
     render();
     renderQuoteStatus();
@@ -1771,7 +1851,7 @@ function syncAutoRefreshTimer() {
     renderQuoteStatus();
     return;
   }
-  state.autoRefresh.timer = window.setInterval(refreshData, state.autoRefresh.interval * 1000);
+  state.autoRefresh.timer = window.setInterval(() => refreshData(false), state.autoRefresh.interval * 1000);
   renderQuoteStatus();
 }
 
@@ -1893,8 +1973,8 @@ function toggleTheme() {
 
 applyTheme(document.documentElement.dataset.theme);
 
-document.getElementById("refreshTop").addEventListener("click", refreshData);
-document.getElementById("refreshSide").addEventListener("click", refreshData);
+document.getElementById("refreshTop").addEventListener("click", () => refreshData(true));
+document.getElementById("refreshSide").addEventListener("click", () => refreshData(true));
 document.getElementById("themeToggle")?.addEventListener("click", toggleTheme);
 document.getElementById("autoRefreshToggle").addEventListener("change", (event) => setAutoRefresh(event.target.checked));
 document.getElementById("refreshIntervalSelect").addEventListener("change", (event) => setAutoRefreshInterval(event.target.value));

@@ -258,13 +258,16 @@
 
           <article id="usHoldings" class="panel holdings-panel us-holdings">
             <div class="panel-title">
-              <h3>美股持仓 <span id="uCount"></span></h3>
+              <div class="us-holdings-heading">
+                <h3>美股持仓 <span id="uCount"></span></h3>
+                <div id="usExtendedSummary" class="extended-summary" aria-live="polite"></div>
+              </div>
               <button class="section-jump" data-scroll="usHoldings">全部 ›</button>
             </div>
             <div class="table-scroll">
               <table>
                 <thead>
-                  <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>操作</th></tr>
+                  <tr><th>名称/代码</th><th>市值</th><th>数量</th><th>成本价</th><th>现价</th><th>总盈亏</th><th>当日盈亏</th><th>盘前/盘后</th><th>操作</th></tr>
                 </thead>
                 <tbody id="uRows"></tbody>
                 <tfoot id="uFoot"></tfoot>

@@ -39,7 +39,9 @@ function quoteProviderConfig() {
   const useFinnhub = provider === "finnhub" && Boolean(finnhubKey);
   return {
     provider: useFinnhub ? "finnhub" : "mock",
-    providerName: useFinnhub ? "Finnhub美股/港股 + 东方财富A股" : "东方财富A股 + 本地美股/港股",
+    providerName: useFinnhub
+      ? "Finnhub美股 + Yahoo盘前盘后 + 东方财富A股/港股"
+      : "东方财富A股/港股 + 本地美股",
     finnhubKey
   };
 }
@@ -85,6 +87,17 @@ let intelCache = {
   news: [],
   flows: { indices: [], sectors: [] },
   risks: []
+};
+
+const EXTENDED_QUOTE_REFRESH_MS = 60_000;
+const EXTENDED_QUOTE_DELAYED_MS = 15 * 60_000;
+let extendedHoursCache = {
+  lastAttemptAt: 0,
+  updatedAt: "",
+  session: null,
+  sessionSource: "unavailable",
+  holiday: "",
+  quotes: new Map()
 };
 
 function decodeHtml(value = "") {
@@ -309,6 +322,10 @@ function enrichHoldings(rows = holdings()) {
     const dayPnlNative = (item.price - previousPrice) * item.qty;
     const dayBaseValueNative = previousPrice * item.qty;
     const dayPnlRate = ((item.price - previousPrice) / Math.max(previousPrice, 1)) * 100;
+    const extended = item.currency === "USD" ? extendedHoursCache.quotes.get(String(item.ticker).toUpperCase()) : null;
+    const extendedEstimatedPnlNative = extended
+      ? (Number(extended.price) - Number(extended.referencePrice)) * Number(item.qty)
+      : null;
     return {
       ...item,
       marketValue: Number(currencyToCny(marketValueNative, item.currency).toFixed(2)),
@@ -320,7 +337,17 @@ function enrichHoldings(rows = holdings()) {
       dayPnlRate: Number(dayPnlRate.toFixed(2)),
       totalPnl: Number(currencyToCny(totalPnlNative, item.currency).toFixed(2)),
       totalPnlNative: Number(totalPnlNative.toFixed(2)),
-      totalPnlRate: Number(((totalPnlNative / Math.max(costValueNative, 1)) * 100).toFixed(2))
+      totalPnlRate: Number(((totalPnlNative / Math.max(costValueNative, 1)) * 100).toFixed(2)),
+      extendedSession: extended?.session || null,
+      extendedPrice: extended ? Number(extended.price) : null,
+      extendedChange: extended ? Number(extended.change) : null,
+      extendedChangePercent: extended ? Number(extended.changePercent) : null,
+      extendedEstimatedPnlNative: extendedEstimatedPnlNative === null ? null : Number(extendedEstimatedPnlNative.toFixed(2)),
+      extendedEstimatedPnl: extendedEstimatedPnlNative === null
+        ? null
+        : Number(currencyToCny(extendedEstimatedPnlNative, item.currency).toFixed(2)),
+      extendedUpdatedAt: extended?.updatedAt || null,
+      extendedStatus: extended?.status || "unavailable"
     };
   });
 }
@@ -799,6 +826,13 @@ function dashboard() {
   const ashareSummary = groupSummary(enriched, "A股", realized.get("A股") || 0);
   const hkSummary = groupSummary(enriched, "港股", realized.get("港股") || 0);
   const usSummary = groupSummary(enriched, "美股", realized.get("美股") || 0);
+  const extendedPnlNative = enriched
+    .filter((item) => item.currency === "USD" && Number.isFinite(item.extendedEstimatedPnlNative))
+    .reduce((sum, item) => sum + item.extendedEstimatedPnlNative, 0);
+  const extendedPnl = enriched
+    .filter((item) => item.currency === "USD" && Number.isFinite(item.extendedEstimatedPnl))
+    .reduce((sum, item) => sum + item.extendedEstimatedPnl, 0);
+  const extendedQuoteCount = enriched.filter((item) => item.currency === "USD" && Number.isFinite(item.extendedPrice)).length;
   return {
     cash,
     cashAccounts: accounts,
@@ -826,7 +860,16 @@ function dashboard() {
       providerName: providerConfig.providerName,
       mode: getSetting("quoteMode", "polling"),
       lastRefreshAt: getSetting("lastQuoteRefreshAt", ""),
-      message: getSetting("quoteStatusMessage", "当前使用模拟行情，真实行情源可后续接入")
+      message: getSetting("quoteStatusMessage", "当前使用模拟行情，真实行情源可后续接入"),
+      extendedHours: {
+        session: extendedHoursCache.session,
+        sessionSource: extendedHoursCache.sessionSource,
+        holiday: extendedHoursCache.holiday,
+        updatedAt: extendedHoursCache.updatedAt,
+        quoteCount: extendedQuoteCount,
+        estimatedPnlNative: Number(extendedPnlNative.toFixed(2)),
+        estimatedPnl: Number(extendedPnl.toFixed(2))
+      }
     },
     advisorStatus: {
       configured: advisorConfig.configured,
@@ -1418,6 +1461,196 @@ async function fetchFinnhubQuote(ticker, token) {
   }
 }
 
+function normalizeUsMarketSession(value) {
+  const session = String(value || "").trim().toLowerCase();
+  if (session === "pre-market" || session === "premarket" || session === "pre") return "pre-market";
+  if (session === "post-market" || session === "postmarket" || session === "after-hours" || session === "post") return "post-market";
+  if (session === "regular" || session === "open") return "regular";
+  return null;
+}
+
+async function fetchFinnhubMarketStatus(token) {
+  if (!token) throw new Error("Finnhub API key is not configured");
+  const url = `https://finnhub.io/api/v1/stock/market-status?exchange=US&token=${encodeURIComponent(token)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Finnhub market status HTTP ${response.status}`);
+    const payload = await response.json();
+    return {
+      session: normalizeUsMarketSession(payload.session),
+      holiday: String(payload.holiday || ""),
+      isOpen: Boolean(payload.isOpen)
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function inferSessionFromTradingPeriods(periods, nowSeconds = Math.floor(Date.now() / 1000)) {
+  if (!periods) return null;
+  if (nowSeconds >= Number(periods.pre?.start) && nowSeconds < Number(periods.pre?.end)) return "pre-market";
+  if (nowSeconds >= Number(periods.regular?.start) && nowSeconds < Number(periods.regular?.end)) return "regular";
+  if (nowSeconds >= Number(periods.post?.start) && nowSeconds < Number(periods.post?.end)) return "post-market";
+  return null;
+}
+
+async function fetchYahooChart(ticker) {
+  const symbol = String(ticker).trim().toUpperCase();
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Accept: "application/json"
+      }
+    });
+    if (!response.ok) throw new Error(`Yahoo chart HTTP ${response.status}`);
+    const payload = await response.json();
+    const result = payload?.chart?.result?.[0];
+    if (!result) throw new Error(`Yahoo returned no chart for ${symbol}`);
+    return { symbol, result };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function extractYahooExtendedQuote(result, session) {
+  if (!["pre-market", "post-market"].includes(session)) return null;
+  const meta = result?.meta || {};
+  const periods = meta.currentTradingPeriod;
+  const period = session === "pre-market" ? periods?.pre : periods?.post;
+  const timestamps = Array.isArray(result?.timestamp) ? result.timestamp : [];
+  const closes = result?.indicators?.quote?.[0]?.close || [];
+  if (!period || timestamps.length === 0) return null;
+
+  let index = -1;
+  for (let idx = timestamps.length - 1; idx >= 0; idx -= 1) {
+    const timestamp = Number(timestamps[idx]);
+    const price = Number(closes[idx]);
+    if (
+      timestamp >= Number(period.start)
+      && timestamp < Number(period.end)
+      && Number.isFinite(price)
+      && price > 0
+    ) {
+      index = idx;
+      break;
+    }
+  }
+  if (index < 0) return null;
+
+  const price = Number(closes[index]);
+  const referencePrice = session === "pre-market"
+    ? Number(meta.chartPreviousClose || meta.previousClose || meta.regularMarketPrice)
+    : Number(meta.regularMarketPrice || meta.previousClose || meta.chartPreviousClose);
+  if (!Number.isFinite(referencePrice) || referencePrice <= 0) return null;
+
+  const updatedAtMs = Number(timestamps[index]) * 1000;
+  const ageMs = Math.max(Date.now() - updatedAtMs, 0);
+  const change = price - referencePrice;
+  return {
+    session,
+    price: Number(price.toFixed(4)),
+    referencePrice: Number(referencePrice.toFixed(4)),
+    change: Number(change.toFixed(4)),
+    changePercent: Number(((change / referencePrice) * 100).toFixed(2)),
+    updatedAt: new Date(updatedAtMs).toISOString(),
+    status: ageMs > EXTENDED_QUOTE_DELAYED_MS ? "delayed" : "live"
+  };
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
+
+function cachedExtendedQuote(ticker, session) {
+  const previous = extendedHoursCache.quotes.get(String(ticker).toUpperCase());
+  if (!previous || previous.session !== session) return null;
+  const ageMs = Date.now() - new Date(previous.updatedAt).getTime();
+  if (!Number.isFinite(ageMs) || ageMs > EXTENDED_QUOTE_DELAYED_MS * 4) return null;
+  return {
+    ...previous,
+    status: ageMs > EXTENDED_QUOTE_DELAYED_MS ? "delayed" : "cached"
+  };
+}
+
+async function refreshExtendedHoursQuotes(items, options = {}) {
+  const force = Boolean(options.force);
+  const now = Date.now();
+  if (!force && now - extendedHoursCache.lastAttemptAt < EXTENDED_QUOTE_REFRESH_MS) return extendedHoursCache;
+  extendedHoursCache.lastAttemptAt = now;
+
+  const symbols = [...new Set(items
+    .filter((item) => item.currency === "USD" && Number(item.qty) > 0)
+    .map((item) => String(item.ticker).trim().toUpperCase())
+    .filter(Boolean))];
+  if (symbols.length === 0) {
+    extendedHoursCache = {
+      ...extendedHoursCache,
+      updatedAt: new Date().toISOString(),
+      session: null,
+      sessionSource: "unavailable",
+      holiday: "",
+      quotes: new Map()
+    };
+    return extendedHoursCache;
+  }
+
+  const providerConfig = quoteProviderConfig();
+  let marketStatus = null;
+  try {
+    marketStatus = await fetchFinnhubMarketStatus(providerConfig.finnhubKey);
+  } catch (error) {
+    marketStatus = null;
+  }
+
+  const charts = await mapWithConcurrency(symbols, 4, async (symbol) => {
+    try {
+      return await fetchYahooChart(symbol);
+    } catch (error) {
+      return { symbol, error };
+    }
+  });
+  const firstChart = charts.find((item) => item?.result);
+  const inferredSession = inferSessionFromTradingPeriods(firstChart?.result?.meta?.currentTradingPeriod);
+  const session = marketStatus ? marketStatus.session : inferredSession;
+  const sessionSource = marketStatus ? "finnhub" : (firstChart ? "yahoo-time" : "unavailable");
+  const nextQuotes = new Map();
+
+  if (session === "pre-market" || session === "post-market") {
+    charts.forEach(({ symbol, result }) => {
+      const quote = result ? extractYahooExtendedQuote(result, session) : null;
+      const fallback = quote || cachedExtendedQuote(symbol, session);
+      if (fallback) nextQuotes.set(symbol, fallback);
+    });
+  }
+
+  extendedHoursCache = {
+    lastAttemptAt: now,
+    updatedAt: new Date().toISOString(),
+    session,
+    sessionSource,
+    holiday: marketStatus?.holiday || "",
+    quotes: nextQuotes
+  };
+  return extendedHoursCache;
+}
+
 function eastmoneySecid(ticker) {
   const code = String(ticker).trim();
   if (/^(60|68|90)/.test(code)) return `1.${code}`;
@@ -1497,7 +1730,7 @@ async function fetchEastmoneyHkQuotes(items) {
   }
 }
 
-async function refreshQuotes() {
+async function refreshQuotes(options = {}) {
   const providerConfig = quoteProviderConfig();
   const seed = Number(getSetting("seed", "4")) + 1;
   setSetting("seed", seed);
@@ -1514,6 +1747,12 @@ async function refreshQuotes() {
   let failed = 0;
   let eastmoneyQuotes = new Map();
   let eastmoneyHkQuotes = new Map();
+
+  try {
+    await refreshExtendedHoursQuotes(currentHoldings, { force: Boolean(options.forceExtended) });
+  } catch (error) {
+    // Extended-hours data is auxiliary and must never block official quotes.
+  }
 
   try {
     eastmoneyQuotes = await fetchEastmoneyQuotes(currentHoldings.filter((item) => item.currency === "CNY" && /^\d{6}$/.test(item.ticker)));
@@ -1685,7 +1924,7 @@ async function handleApi(req, res, url) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/refresh") {
-      await refreshQuotes();
+      await refreshQuotes({ forceExtended: url.searchParams.get("forceExtended") === "1" });
       queueOnlineSync("quote-refresh");
       sendJson(res, 200, dashboard());
       return true;
@@ -1759,4 +1998,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(port, () => {
   console.log(`Investment dashboard: http://localhost:${port}`);
   scheduleOnlineSync();
+  setTimeout(() => refreshExtendedHoursQuotes(holdings()).catch(() => {}), 1500);
+  setInterval(() => refreshExtendedHoursQuotes(holdings()).catch(() => {}), EXTENDED_QUOTE_REFRESH_MS);
 });
