@@ -488,10 +488,19 @@ function updateMetrics() {
 
 function renderQuoteStatus() {
   const provider = state.quoteStatus?.providerName || "模拟行情";
-  const last = state.quoteStatus?.lastRefreshAt ? new Date(state.quoteStatus.lastRefreshAt).toLocaleTimeString("zh-CN", { hour12: false }) : "未刷新";
+  const last = state.quoteStatus?.lastRefreshAt
+    ? new Date(state.quoteStatus.lastRefreshAt).toLocaleTimeString("zh-CN", { hour12: false })
+    : "未刷新";
+  const audit = state.quoteStatus?.audit;
+  const auditText = Number(audit?.expected) > 0
+    ? `行情校验 ${Number(audit.passed || 0)}/${Number(audit.expected)}`
+    : "行情校验待运行";
   setText("quoteProvider", provider);
   setText("quoteLastRefresh", last);
-  setText("autoRefreshStatus", state.autoRefresh.enabled ? `${state.autoRefresh.interval}秒自动` : "手动刷新");
+  setText(
+    "autoRefreshStatus",
+    `${state.autoRefresh.enabled ? `${state.autoRefresh.interval}秒自动` : "手动刷新"} · ${auditText}`
+  );
 }
 
 function extendedSessionLabel(session) {

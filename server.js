@@ -413,6 +413,37 @@ function currentTradingDate(currency) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function validateProviderQuote(quote) {
+  const price = Number(quote?.price);
+  const previousClose = Number(quote?.previousClose);
+  if (!Number.isFinite(price) || price <= 0) return { valid: false, reason: "invalid_price" };
+  if (!quote?.hasPreviousClose || !Number.isFinite(previousClose) || previousClose <= 0) {
+    return { valid: false, reason: "missing_previous_close" };
+  }
+  const computedChangePercent = ((price - previousClose) / previousClose) * 100;
+  const providerChangePercent = quote?.changePercent === null || quote?.changePercent === undefined
+    ? null
+    : Number(quote.changePercent);
+  if (
+    Number.isFinite(providerChangePercent)
+    && Math.abs(computedChangePercent - providerChangePercent) > 0.15
+  ) {
+    return { valid: false, reason: "change_percent_mismatch" };
+  }
+  return {
+    valid: true,
+    computedChangePercent: Number(computedChangePercent.toFixed(4))
+  };
+}
+
+function getQuoteAudit() {
+  try {
+    return JSON.parse(getSetting("quoteAudit", "{}"));
+  } catch {
+    return {};
+  }
+}
+
 function holdingSyncKey(market, ticker) {
   return `${String(market || "").trim()}::${String(ticker || "").trim().toUpperCase()}`;
 }
@@ -938,6 +969,7 @@ function dashboard() {
       providerName: providerConfig.providerName,
       mode: getSetting("quoteMode", "polling"),
       lastRefreshAt: getSetting("lastQuoteRefreshAt", ""),
+      audit: getQuoteAudit(),
       message: getSetting("quoteStatusMessage", "当前使用模拟行情，真实行情源可后续接入"),
       extendedHours: {
         session: extendedHoursCache.session,
@@ -1530,10 +1562,12 @@ async function fetchFinnhubQuote(ticker, token) {
     const price = Number(quote.c);
     if (!Number.isFinite(price) || price <= 0) throw new Error(`Finnhub returned no current price for ${ticker}`);
     const previousClose = Number(quote.pc);
+    const changePercent = Number(quote.dp);
     return {
       price: Number(price.toFixed(2)),
       previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(2)) : Number(price.toFixed(2)),
-      hasPreviousClose: Number.isFinite(previousClose) && previousClose > 0
+      hasPreviousClose: Number.isFinite(previousClose) && previousClose > 0,
+      changePercent: Number.isFinite(changePercent) ? changePercent : null
     };
   } finally {
     clearTimeout(timeout);
@@ -1739,7 +1773,7 @@ function eastmoneySecid(ticker) {
 async function fetchEastmoneyQuotes(items) {
   if (items.length === 0) return new Map();
   const secids = items.map((item) => eastmoneySecid(item.ticker)).join(",");
-  const fields = "f12,f14,f2,f18";
+  const fields = "f12,f14,f2,f3,f18";
   const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=${fields}&secids=${encodeURIComponent(secids)}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
@@ -1755,11 +1789,13 @@ async function fetchEastmoneyQuotes(items) {
     rows.forEach((row) => {
       const price = Number(row.f2);
       const previousClose = Number(row.f18);
+      const changePercent = Number(row.f3);
       if (row.f12 && Number.isFinite(price) && price > 0) {
         quotes.set(String(row.f12), {
           price: Number(price.toFixed(2)),
           previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(2)) : Number(price.toFixed(2)),
-          hasPreviousClose: Number.isFinite(previousClose) && previousClose > 0
+          hasPreviousClose: Number.isFinite(previousClose) && previousClose > 0,
+          changePercent: Number.isFinite(changePercent) ? changePercent : null
         });
       }
     });
@@ -1777,7 +1813,7 @@ function hkTickerCode(ticker) {
 async function fetchEastmoneyHkQuotes(items) {
   if (items.length === 0) return new Map();
   const secids = items.map((item) => `116.${hkTickerCode(item.ticker)}`).join(",");
-  const fields = "f12,f14,f2,f18";
+  const fields = "f12,f14,f2,f3,f18";
   const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=${fields}&secids=${encodeURIComponent(secids)}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
@@ -1797,11 +1833,13 @@ async function fetchEastmoneyHkQuotes(items) {
       const code = String(row.f12 || "").padStart(5, "0");
       const price = Number(row.f2);
       const previousClose = Number(row.f18);
+      const changePercent = Number(row.f3);
       if (code && Number.isFinite(price) && price > 0) {
         quotes.set(code, {
           price: Number(price.toFixed(3)),
           previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(3)) : Number(price.toFixed(3)),
-          hasPreviousClose: Number.isFinite(previousClose) && previousClose > 0
+          hasPreviousClose: Number.isFinite(previousClose) && previousClose > 0,
+          changePercent: Number.isFinite(changePercent) ? changePercent : null
         });
       }
     });
@@ -1828,6 +1866,7 @@ async function refreshQuotes(options = {}) {
   let failed = 0;
   let eastmoneyQuotes = new Map();
   let eastmoneyHkQuotes = new Map();
+  const quoteAuditRows = [];
 
   try {
     await refreshExtendedHoursQuotes(currentHoldings, { force: Boolean(options.forceExtended) });
@@ -1854,29 +1893,48 @@ async function refreshQuotes(options = {}) {
     if (providerConfig.provider === "finnhub" && item.currency === "USD") {
       try {
         const quote = await fetchFinnhubQuote(item.ticker, providerConfig.finnhubKey);
-        nextPrice = quote.price;
-        previousClose = quote.previousClose;
-        hasOfficialPreviousClose = quote.hasPreviousClose;
-        usUpdated += 1;
+        const audit = validateProviderQuote(quote);
+        quoteAuditRows.push({ market: item.market, ticker: item.ticker, source: "Finnhub", ...audit });
+        if (audit.valid) {
+          nextPrice = quote.price;
+          previousClose = quote.previousClose;
+          hasOfficialPreviousClose = quote.hasPreviousClose;
+          usUpdated += 1;
+        } else {
+          failed += 1;
+        }
       } catch (error) {
         failed += 1;
+        quoteAuditRows.push({ market: item.market, ticker: item.ticker, source: "Finnhub", valid: false, reason: "request_failed" });
       }
     }
 
     if (item.currency === "CNY" && eastmoneyQuotes.has(item.ticker)) {
       const quote = eastmoneyQuotes.get(item.ticker);
-      nextPrice = quote.price;
-      previousClose = quote.previousClose;
-      hasOfficialPreviousClose = quote.hasPreviousClose;
-      cnUpdated += 1;
+      const audit = validateProviderQuote(quote);
+      quoteAuditRows.push({ market: item.market, ticker: item.ticker, source: "Eastmoney", ...audit });
+      if (audit.valid) {
+        nextPrice = quote.price;
+        previousClose = quote.previousClose;
+        hasOfficialPreviousClose = quote.hasPreviousClose;
+        cnUpdated += 1;
+      } else {
+        failed += 1;
+      }
     }
 
     if (item.currency === "HKD" && eastmoneyHkQuotes.has(hkTickerCode(item.ticker))) {
       const quote = eastmoneyHkQuotes.get(hkTickerCode(item.ticker));
-      nextPrice = quote.price;
-      previousClose = quote.previousClose;
-      hasOfficialPreviousClose = quote.hasPreviousClose;
-      hkUpdated += 1;
+      const audit = validateProviderQuote(quote);
+      quoteAuditRows.push({ market: item.market, ticker: item.ticker, source: "Eastmoney", ...audit });
+      if (audit.valid) {
+        nextPrice = quote.price;
+        previousClose = quote.previousClose;
+        hasOfficialPreviousClose = quote.hasPreviousClose;
+        hkUpdated += 1;
+      } else {
+        failed += 1;
+      }
     }
 
     if (nextPrice === null) {
@@ -1895,6 +1953,15 @@ async function refreshQuotes(options = {}) {
   }
 
   saveDayBasePrices(dayBaseRows);
+  const auditIssues = quoteAuditRows.filter((item) => !item.valid);
+  setSetting("quoteAudit", JSON.stringify({
+    checkedAt: new Date().toISOString(),
+    expected: currentHoldings.length,
+    checked: quoteAuditRows.length,
+    passed: quoteAuditRows.length - auditIssues.length,
+    failed: auditIssues.length + Math.max(currentHoldings.length - quoteAuditRows.length, 0),
+    issues: auditIssues
+  }));
   setSetting("lastQuoteRefreshAt", new Date().toISOString());
   setSetting("quoteMode", "polling");
   setSetting(
