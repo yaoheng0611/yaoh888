@@ -427,19 +427,22 @@ function saveDayBasePrices(rows) {
     const existingPrice = Number(existing.get(String(item.id)));
     const tradingDate = currentTradingDate(item.currency);
     const existingDate = existingDates.get(String(item.id));
-    const hasCurrentBase = (!existingDate || existingDate === tradingDate)
-      && Number.isFinite(existingPrice)
-      && existingPrice > 0;
-    const price = hasCurrentBase
-      ? existingPrice
-      : Number.isFinite(previousClose) && previousClose > 0
-        ? previousClose
-        : Number.isFinite(existingPrice) && existingPrice > 0
+    const hasExistingPrice = Number.isFinite(existingPrice) && existingPrice > 0;
+    const hasOfficialPreviousClose = Boolean(item.hasOfficialPreviousClose)
+      && Number.isFinite(previousClose)
+      && previousClose > 0;
+    const price = hasOfficialPreviousClose
+      ? previousClose
+      : hasExistingPrice
         ? existingPrice
         : Number(item.price);
     if (Number.isFinite(price) && price > 0) {
       prices[String(item.id)] = price;
-      dates[String(item.id)] = tradingDate;
+      if (hasOfficialPreviousClose) {
+        dates[String(item.id)] = tradingDate;
+      } else if (existingDate) {
+        dates[String(item.id)] = existingDate;
+      }
     }
   });
   setSetting("dayBasePrices", JSON.stringify(prices));
@@ -1529,7 +1532,8 @@ async function fetchFinnhubQuote(ticker, token) {
     const previousClose = Number(quote.pc);
     return {
       price: Number(price.toFixed(2)),
-      previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(2)) : Number(price.toFixed(2))
+      previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(2)) : Number(price.toFixed(2)),
+      hasPreviousClose: Number.isFinite(previousClose) && previousClose > 0
     };
   } finally {
     clearTimeout(timeout);
@@ -1754,7 +1758,8 @@ async function fetchEastmoneyQuotes(items) {
       if (row.f12 && Number.isFinite(price) && price > 0) {
         quotes.set(String(row.f12), {
           price: Number(price.toFixed(2)),
-          previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(2)) : Number(price.toFixed(2))
+          previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(2)) : Number(price.toFixed(2)),
+          hasPreviousClose: Number.isFinite(previousClose) && previousClose > 0
         });
       }
     });
@@ -1795,7 +1800,8 @@ async function fetchEastmoneyHkQuotes(items) {
       if (code && Number.isFinite(price) && price > 0) {
         quotes.set(code, {
           price: Number(price.toFixed(3)),
-          previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(3)) : Number(price.toFixed(3))
+          previousClose: Number.isFinite(previousClose) && previousClose > 0 ? Number(previousClose.toFixed(3)) : Number(price.toFixed(3)),
+          hasPreviousClose: Number.isFinite(previousClose) && previousClose > 0
         });
       }
     });
@@ -1844,11 +1850,13 @@ async function refreshQuotes(options = {}) {
   for (const [idx, item] of currentHoldings.entries()) {
     let nextPrice = null;
     let previousClose = null;
+    let hasOfficialPreviousClose = false;
     if (providerConfig.provider === "finnhub" && item.currency === "USD") {
       try {
         const quote = await fetchFinnhubQuote(item.ticker, providerConfig.finnhubKey);
         nextPrice = quote.price;
         previousClose = quote.previousClose;
+        hasOfficialPreviousClose = quote.hasPreviousClose;
         usUpdated += 1;
       } catch (error) {
         failed += 1;
@@ -1859,6 +1867,7 @@ async function refreshQuotes(options = {}) {
       const quote = eastmoneyQuotes.get(item.ticker);
       nextPrice = quote.price;
       previousClose = quote.previousClose;
+      hasOfficialPreviousClose = quote.hasPreviousClose;
       cnUpdated += 1;
     }
 
@@ -1866,6 +1875,7 @@ async function refreshQuotes(options = {}) {
       const quote = eastmoneyHkQuotes.get(hkTickerCode(item.ticker));
       nextPrice = quote.price;
       previousClose = quote.previousClose;
+      hasOfficialPreviousClose = quote.hasPreviousClose;
       hkUpdated += 1;
     }
 
@@ -1875,7 +1885,13 @@ async function refreshQuotes(options = {}) {
       retained += 1;
     }
     update.run(nextPrice, item.id);
-    dayBaseRows.push({ id: item.id, price: nextPrice, previousClose, currency: item.currency });
+    dayBaseRows.push({
+      id: item.id,
+      price: nextPrice,
+      previousClose,
+      currency: item.currency,
+      hasOfficialPreviousClose
+    });
   }
 
   saveDayBasePrices(dayBaseRows);
