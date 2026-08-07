@@ -4,7 +4,7 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 
 const root = __dirname;
-const port = Number(process.env.PORT || 5173);
+const port = Number(process.env.PORT || 48080);
 const db = new DatabaseSync(path.join(root, "portfolio.db"));
 
 const FX = 191671.17 / 28442.34;
@@ -1151,7 +1151,7 @@ function replaceState(input) {
 function onlineSyncConfig() {
   const explicit = String(process.env.ONLINE_AUTO_SYNC || "").trim().toLowerCase();
   const isRender = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL);
-  const isLocalPort = String(port) === "5173";
+  const isLocalPort = String(port) === "48080";
   const defaultEnabled = !isRender && isLocalPort;
   const enabled = explicit ? !["0", "false", "off", "no"].includes(explicit) : defaultEnabled;
   const intervalSeconds = Math.max(60, Number(process.env.ONLINE_SYNC_INTERVAL_SECONDS || 300));
